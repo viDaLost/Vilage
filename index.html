@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>Империя Востока 3D RTS</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./styles.css" />
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+      "simplex-noise": "https://cdn.jsdelivr.net/npm/simplex-noise@4.0.1/+esm"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="loading-screen">
+    <h1>⚔️ Империя Востока 3D RTS</h1>
+    <div class="loading-bar"><div id="loading-fill"></div></div>
+    <div id="loading-text">Подготовка живого мира…</div>
+  </div>
+
+  <div id="vignette"></div>
+  <canvas id="game"></canvas>
+
+  <div id="ui-root">
+    <div id="top-bar" class="glass-panel"></div>
+
+    <div id="left-column">
+      <div class="glass-panel panel-block" id="kingdom-panel">
+        <div class="panel-title">Держава</div>
+        <div id="kingdom-text">Империя крепнет в реальном времени.</div>
+        <div class="badge-row" id="kingdom-badges"></div>
+      </div>
+      <div class="glass-panel panel-block" id="objectives-panel">
+        <div class="panel-title">Цели</div>
+        <div id="objectives-list"></div>
+      </div>
+      <div class="glass-panel panel-block" id="selection-panel">
+        <div class="panel-title" id="selection-title">Выбор</div>
+        <div id="selection-content">Коснись клетки, здания или юнита.</div>
+      </div>
+    </div>
+
+    <div id="right-column">
+      <div class="glass-panel mini-panel">⏱️ <span id="clock-label">06:00</span></div>
+      <div class="glass-panel mini-panel">🌦️ <span id="weather-label">Ясно</span></div>
+      <div class="glass-panel mini-panel">🏛️ <span id="era-label">Основание</span></div>
+      <div class="glass-panel mini-panel">⚠️ Угроза <span id="threat-label">0</span></div>
+      <div class="glass-panel" id="minimap-wrap"><canvas id="minimap"></canvas></div>
+    </div>
+
+    <div id="bottom-actions">
+      <button class="action-btn" data-action="focus-capital">🏰 Столица</button>
+      <button class="action-btn" data-action="build-menu">🛠️ Строить</button>
+      <button class="action-btn" data-action="train-menu">⚔️ Войска</button>
+      <button class="action-btn" data-action="research-menu">🔬 Знания</button>
+      <button class="action-btn" data-action="rules">❔ Правила</button>
+    </div>
+
+    <div id="speed-controls" class="glass-panel">
+      <button class="speed-btn active" data-speed="0">⏸</button>
+      <button class="speed-btn" data-speed="1">x1</button>
+      <button class="speed-btn" data-speed="2">x2</button>
+      <button class="speed-btn" data-speed="4">x4</button>
+    </div>
+
+    <div id="context-drawer" class="glass-panel hidden">
+      <div class="drawer-header">
+        <div>
+          <div class="panel-title" id="drawer-title">Меню</div>
+          <div class="drawer-subtitle" id="drawer-subtitle">Команды</div>
+        </div>
+        <button id="drawer-close">✕</button>
+      </div>
+      <div id="drawer-body"></div>
+    </div>
+
+    <div id="notifications"></div>
+
+    <div id="modal-overlay" class="hidden">
+      <div id="modal-window" class="glass-panel">
+        <div class="drawer-header">
+          <div>
+            <div class="panel-title" id="modal-title">Справка</div>
+            <div class="drawer-subtitle" id="modal-subtitle">Описание</div>
+          </div>
+          <button id="modal-close">✕</button>
+        </div>
+        <div id="modal-body"></div>
+        <div id="modal-actions"></div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
