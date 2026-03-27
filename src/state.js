@@ -1,0 +1,53 @@
+import { OBJECTIVES } from './config.js';
+
+export function createInitialState() {
+  return {
+    timeScale: 1,
+    paused: false,
+    dayTime: 0,
+    seasonTime: 0,
+    worldTime: 0,
+    autosaveTimer: 0,
+    enemyWaveTimer: 16,
+    workerSpawnTimer: 4,
+    weather: 'clear',
+    era: 0,
+    selected: null,
+    selectedBuildType: null,
+    dragging: false,
+    resources: {
+      gold: 140,
+      food: 110,
+      wood: 80,
+      stone: 55,
+      population: 14,
+      populationCap: 18,
+      workers: 4,
+      army: 0,
+      prestige: 12,
+      stability: 76,
+      knowledge: 0,
+      threat: 8,
+      roads: 0
+    },
+    techs: new Set(),
+    techProgress: null,
+    objectives: OBJECTIVES.map(o => ({ ...o, done: false })),
+    map: [],
+    mapIndex: new Map(),
+    buildings: [],
+    construction: [],
+    units: [],
+    projectiles: [],
+    enemyCamps: [],
+    roads: [],
+    territoryRadius: 13.5,
+    notifications: [],
+    capitalId: null,
+    stats: {
+      raidsDefeated: 0,
+      wonderBuilt: 0,
+      armyUnits: 0
+    }
+  };
+}
