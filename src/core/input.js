@@ -1,9 +1,8 @@
 import * as THREE from 'three';
-import { getBuildingOnTile } from '../systems/buildings.js';
-import { closeDrawer } from '../ui/drawer.js';
+import { GAME_CONFIG } from '../config.js';
 
 export function setupInput(sceneCtx, state, handlers) {
-  const { camera, renderer, controls, groups } = sceneCtx;
+  const { camera, renderer, groups } = sceneCtx;
   const raycaster = new THREE.Raycaster();
   const pointer = new THREE.Vector2();
   let down = { x: 0, y: 0 };
@@ -20,17 +19,29 @@ export function setupInput(sceneCtx, state, handlers) {
     pointer.x = (e.clientX / innerWidth) * 2 - 1;
     pointer.y = -(e.clientY / innerHeight) * 2 + 1;
     raycaster.setFromCamera(pointer, camera);
+
     const unitHits = raycaster.intersectObjects(groups.units.children, true);
     if (unitHits.length) {
       const unitObj = unitHits[0].object;
       const unit = state.units.find((u) => u.mesh === unitObj.parent || u.mesh === unitObj || u.mesh.children.includes(unitObj));
       if (unit) return handlers.onUnit(unit);
     }
+
     const hits = raycaster.intersectObjects(groups.tiles.children, false);
     if (!hits.length) return;
     const hit = hits[0].object;
     const tile = state.map.find((t) => t.mesh === hit);
     if (!tile) return;
-    handlers.onTile(tile);
+
+    const now = performance.now();
+    const isDoubleTap = state.lastTapTileId === tile.id && (now - state.lastTapAt) <= GAME_CONFIG.doubleTapMs;
+    state.lastTapTileId = tile.id;
+    state.lastTapAt = now;
+
+    if (isDoubleTap && handlers.onTileDouble) {
+      handlers.onTileDouble(tile);
+    } else {
+      handlers.onTile(tile);
+    }
   });
 }
