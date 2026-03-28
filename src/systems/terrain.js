@@ -33,17 +33,17 @@ function ridgedNoise(x, z, octaves = 3, scale = 1.0) {
   let weight = 1.0;
 
   for (let i = 0; i < octaves; i++) {
-    // Делаем шум "острым", переворачивая его модулем
     let n = 1.0 - Math.abs(noise2D(x * frequency, z * frequency));
-    n *= n; // Усиливаем остроту
+    n *= n;
     total += n * amplitude * weight;
-    weight = Math.max(0.1, Math.min(1.0, n * 2.0)); // Умная эрозия: пики порождают пики
+    weight = Math.max(0.1, Math.min(1.0, n * 2.0));
     amplitude *= 0.5;
     frequency *= 2.0;
   }
   return total;
 }
 
+// Находит ближайший гекс на карте (для определения биома)
 function dominantTileAt(state, x, z) {
   let best = null;
   let bestD = Infinity;
@@ -58,17 +58,10 @@ function dominantTileAt(state, x, z) {
 
 // Комбинированная функция рельефа
 function macroTerrain(x, z) {
-  // Базовая форма (холмы, равнины)
   const baseTerrain = fbm(x, z, 5, 0.5, 0.01) * 2.5; 
-  
-  // Горные хребты
   const mountains = ridgedNoise(x + 100, z - 50, 4, 0.015) * 3.5;
-  
-  // Маска, чтобы горы появлялись только в определенных местах
   const mountainMask = fbm(x, z, 2, 0.5, 0.005);
   const actualMountains = mountains * Math.max(0, mountainMask + 0.2);
-
-  // Мелкие детали (камни, кочки)
   const detail = fbm(x, z, 3, 0.4, 0.08) * 0.3;
 
   return baseTerrain + actualMountains + detail;
@@ -84,9 +77,9 @@ export function sampleTerrainHeightFromGrid(state, x, z) {
     const dz = z - tile.pos.z;
     const d2 = dx * dx + dz * dz;
     if (d2 > maxDist2) continue;
-    // Более плавное затухание веса для мягких переходов биомов
+    
     const w = Math.max(0, 1.0 - (d2 / maxDist2));
-    const smoothW = w * w * (3 - 2 * w); // Smoothstep функция
+    const smoothW = w * w * (3 - 2 * w);
     
     weightSum += smoothW;
     heightSum += tile.height * smoothW;
@@ -98,33 +91,25 @@ export function sampleTerrainHeightFromGrid(state, x, z) {
 
 // Умная раскраска с учетом высоты и крутизны склона
 function colorFor(type, h, x, z, steepness) {
-  // Базовые цвета биомов берем из конфига или ставим реалистичные дефолты
-  let baseColorHex = TERRAIN_TYPES[type]?.color || 0x6e8e45; // Зеленый по умолчанию
+  let baseColorHex = TERRAIN_TYPES[type]?.color || 0x6e8e45;
   let c = new THREE.Color(baseColorHex);
 
-  // 1. Добавляем цветовой шум (чтобы трава не была однотонной)
   const colorNoise = fbm(x, z, 3, 0.5, 0.05);
   c.offsetHSL(0.0, colorNoise * 0.05, colorNoise * 0.1 - 0.05);
 
-  // 2. Раскраска по крутизне склона (Slope texturing)
-  // Если склон крутой, обнажается скальная порода или грязь
-  const rockColor = new THREE.Color(0x7a7a7a).offsetHSL(0, 0, colorNoise * 0.1); // Серый камень
-  const dirtColor = new THREE.Color(0x6b543a); // Темная земля
+  const rockColor = new THREE.Color(0x7a7a7a).offsetHSL(0, 0, colorNoise * 0.1);
+  const dirtColor = new THREE.Color(0x6b543a);
   
   if (steepness > 0.45) {
-    // Очень крутой склон - камень
     const blend = Math.min(1.0, (steepness - 0.45) * 3.0);
     c.lerp(rockColor, blend);
   } else if (steepness > 0.3) {
-    // Средний склон - земля/грязь
     const blend = Math.min(1.0, (steepness - 0.3) * 6.0);
     c.lerp(dirtColor, blend);
   }
 
-  // 3. Снежные шапки на больших высотах
   if (h > 4.5) {
     const snowColor = new THREE.Color(0xffffff);
-    // Делаем край снега неровным с помощью шума
     const snowThreshold = 4.5 + fbm(x, z, 2, 0.5, 0.1) * 0.8;
     if (h > snowThreshold) {
       const snowBlend = Math.min(1.0, (h - snowThreshold) * 1.5);
@@ -132,18 +117,17 @@ function colorFor(type, h, x, z, steepness) {
     }
   }
 
-  // 4. Песок/земля у воды
-  const waterLvl = GAME_CONFIG.terrain.waterLevel || 0;
+  // Защита от отсутствия waterLevel в конфиге
+  const waterLvl = GAME_CONFIG.terrain?.waterLevel || 0;
   if (h > waterLvl && h < waterLvl + 0.3) {
-    const sandColor = new THREE.Color(0xd9c593); // Песочный
+    const sandColor = new THREE.Color(0xd9c593);
     const sandBlend = 1.0 - ((h - waterLvl) / 0.3);
     c.lerp(sandColor, sandBlend);
   }
 
-  // Усиливаем цвет дна для глубины
   if (type === 'water' || h <= waterLvl) {
     const depth = Math.min(1.0, (waterLvl - h) / 2.0);
-    const deepWaterColor = new THREE.Color(0x1a4f66); // Темно-синий
+    const deepWaterColor = new THREE.Color(0x1a4f66);
     c.lerp(deepWaterColor, depth);
   }
 
@@ -156,17 +140,13 @@ export function buildTerrain(sceneCtx, state) {
   if (waterMesh) groups.tiles.remove(waterMesh);
 
   const size = GAME_CONFIG.mapRadius * GAME_CONFIG.hexSize * 5.2;
-  const segments = 220; // Увеличил количество полигонов для детализации рельефа
-  const geo = new THREE.PlaneGeometry(size, size, segments, segments);
+  const segments = 80; // Размер полигонов (чем меньше число, тем крупнее грани)
+  let geo = new THREE.PlaneGeometry(size, size, segments, segments);
   geo.rotateX(-Math.PI / 2);
 
   const pos = geo.attributes.position;
-  const colors = [];
   
-  // Кэшируем высоты, чтобы посчитать крутизну склонов (нормали)
-  const heights = new Float32Array(pos.count);
-
-  // Первый проход: вычисляем только высоту
+  // 1. Сначала задаем высоту для связанной сетки
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i);
     const z = pos.getZ(i);
@@ -174,78 +154,85 @@ export function buildTerrain(sceneCtx, state) {
     const type = nearest?.type || 'grass';
     
     let h = sampleTerrainHeightFromGrid(state, x, z);
-    if (type === 'water') h -= 0.5; // Углубляем реки/озера
+    if (type === 'water') h -= 0.5; 
     
-    heights[i] = h;
     pos.setY(i, h);
   }
 
-  // Второй проход: красим с учетом уклона
-  for (let i = 0; i < pos.count; i++) {
-    const x = pos.getX(i);
-    const z = pos.getZ(i);
-    const h = heights[i];
-    
-    const nearest = dominantTileAt(state, x, z);
+  // 2. Отвязываем полигоны друг от друга для граненого стиля
+  geo = geo.toNonIndexed();
+  
+  const nonIndexedPos = geo.attributes.position;
+  const colors = [];
+
+  // 3. Красим каждый треугольник целиком
+  for (let i = 0; i < nonIndexedPos.count; i += 3) {
+    const v1 = new THREE.Vector3(nonIndexedPos.getX(i), nonIndexedPos.getY(i), nonIndexedPos.getZ(i));
+    const v2 = new THREE.Vector3(nonIndexedPos.getX(i+1), nonIndexedPos.getY(i+1), nonIndexedPos.getZ(i+1));
+    const v3 = new THREE.Vector3(nonIndexedPos.getX(i+2), nonIndexedPos.getY(i+2), nonIndexedPos.getZ(i+2));
+
+    const centerX = (v1.x + v2.x + v3.x) / 3;
+    const centerY = (v1.y + v2.y + v3.y) / 3;
+    const centerZ = (v1.z + v2.z + v3.z) / 3;
+
+    // Считаем наклон треугольника
+    const cb = new THREE.Vector3().subVectors(v3, v2);
+    const ab = new THREE.Vector3().subVectors(v1, v2);
+    const normal = cb.cross(ab).normalize();
+    const steepness = 1.0 - Math.abs(normal.y);
+
+    const nearest = dominantTileAt(state, centerX, centerZ);
     const type = nearest?.type || 'grass';
 
-    // Примерная оценка крутизны склона по соседним вершинам
-    let steepness = 0;
-    // Проверяем соседа справа и снизу (защита от выхода за границы массива)
-    if (i % (segments + 1) !== segments && i + segments + 1 < pos.count) {
-      const hRight = heights[i + 1];
-      const hDown = heights[i + segments + 1];
-      const dx = Math.abs(h - hRight);
-      const dz = Math.abs(h - hDown);
-      // Чем больше разница высот на шаг сетки, тем круче склон
-      const stepSize = size / segments;
-      steepness = Math.sqrt(dx * dx + dz * dz) / stepSize; 
-    }
+    const c = colorFor(type, centerY, centerX, centerZ, steepness);
 
-    const c = colorFor(type, h, x, z, steepness);
-    colors.push(c.r, c.g, c.b);
+    // Три точки треугольника красятся в один цвет
+    colors.push(c.r, c.g, c.b); 
+    colors.push(c.r, c.g, c.b); 
+    colors.push(c.r, c.g, c.b); 
   }
 
   geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
   geo.computeVertexNormals();
 
-  // Используем MeshPhysicalMaterial для реалистичного освещения
+  // 4. Создаем землю с flatShading
   terrainMesh = new THREE.Mesh(geo, new THREE.MeshPhysicalMaterial({
     vertexColors: true, 
-    roughness: 0.85, 
-    metalness: 0.05, 
-    flatShading: false,
-    clearcoat: 0.0 // Земля матовая
+    roughness: 0.9, 
+    metalness: 0.0, 
+    flatShading: true, // Включает "рубленый" свет
+    clearcoat: 0.0
   }));
   terrainMesh.receiveShadow = true;
-  terrainMesh.castShadow = true; // Теперь горы отбрасывают тени!
+  terrainMesh.castShadow = true;
   terrainMesh.name = 'terrain-mesh';
   groups.tiles.add(terrainMesh);
 
-  // Улучшенная вода
-  const waterGeo = new THREE.PlaneGeometry(size * 0.96, size * 0.96, 64, 64);
+  // 5. Улучшенная граненая вода
+  let waterGeo = new THREE.PlaneGeometry(size * 0.96, size * 0.96, 40, 40);
   waterGeo.rotateX(-Math.PI / 2);
   
-  // Делаем воду слегка неровной (волны)
   const waterPos = waterGeo.attributes.position;
   for(let i=0; i < waterPos.count; i++) {
       const wx = waterPos.getX(i);
       const wz = waterPos.getZ(i);
-      const wave = noise2D(wx * 0.1, wz * 0.1) * 0.1;
+      const wave = noise2D(wx * 0.1, wz * 0.1) * 0.2;
       waterPos.setY(i, wave);
   }
+  
+  waterGeo = waterGeo.toNonIndexed();
   waterGeo.computeVertexNormals();
 
   waterMesh = new THREE.Mesh(waterGeo, new THREE.MeshPhysicalMaterial({
     color: 0x4da6ff, 
     transparent: true, 
-    opacity: 0.75, 
-    roughness: 0.1, // Вода гладкая
+    opacity: 0.8, 
+    roughness: 0.2, 
     metalness: 0.1,
-    transmission: 0.5, // Эффект преломления/стекла
-    ior: 1.33 // Индекс преломления воды
+    flatShading: true // Грани для воды
   }));
-  waterMesh.position.y = GAME_CONFIG.terrain.waterLevel || 0;
+  const waterLevel = GAME_CONFIG.terrain?.waterLevel || 0;
+  waterMesh.position.y = waterLevel;
   waterMesh.receiveShadow = true;
   groups.tiles.add(waterMesh);
 
