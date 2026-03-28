@@ -6,7 +6,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 
 function makeCloudCluster() {
   const group = new THREE.Group();
-  const mat = new THREE.MeshStandardMaterial({ color: 0xf8f1db, transparent: true, opacity: .2, roughness: 1 });
+  const mat = new THREE.MeshStandardMaterial({ color: 0xf8f1db, transparent: true, opacity: .22, roughness: 1 });
   for (let i = 0; i < 4; i++) {
     const puff = new THREE.Mesh(new THREE.SphereGeometry(4 + Math.random() * 3, 10, 10), mat);
     puff.scale.y = .45 + Math.random() * .15;
@@ -18,42 +18,47 @@ function makeCloudCluster() {
 
 export function createScene(canvas) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: 'high-performance' });
-  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, innerWidth < 900 ? 1.6 : 2));
+  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, innerWidth < 900 ? 1.4 : 1.85));
   renderer.setSize(innerWidth, innerHeight);
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = innerWidth < 900 ? 1.14 : 1.08;
 
   const scene = new THREE.Scene();
-  scene.fog = new THREE.Fog(0x1c120b, 34, 140);
+  scene.fog = new THREE.Fog(0x1a100a, 28, 126);
 
-  const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, .1, 800);
-  camera.position.set(24, 26, 22);
+  const camera = new THREE.PerspectiveCamera(innerWidth < 760 ? 54 : 50, innerWidth / innerHeight, .1, 800);
+  camera.position.set(20, 25, 19);
 
   const controls = new OrbitControls(camera, canvas);
   controls.enableDamping = true;
-  controls.dampingFactor = .06;
-  controls.maxDistance = 72;
-  controls.minDistance = 10;
-  controls.maxPolarAngle = Math.PI / 2.1;
-  controls.minPolarAngle = Math.PI / 5;
+  controls.dampingFactor = .065;
+  controls.maxDistance = innerWidth < 760 ? 58 : 72;
+  controls.minDistance = innerWidth < 760 ? 12 : 10;
+  controls.maxPolarAngle = Math.PI / 2.16;
+  controls.minPolarAngle = Math.PI / 4.7;
   controls.enablePan = false;
-  controls.target.set(0, 1, 0);
+  controls.target.set(0, 1.4, 0);
 
   const composer = new EffectComposer(renderer);
   composer.addPass(new RenderPass(scene, camera));
-  composer.addPass(new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), innerWidth < 800 ? .1 : .14, .35, .92));
+  composer.addPass(new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), innerWidth < 800 ? .16 : .13, .42, .9));
 
-  const hemi = new THREE.HemisphereLight(0xe8f4ff, 0x5a3818, .95);
+  const hemi = new THREE.HemisphereLight(0xf6f2ea, 0x53321a, 1.18);
   scene.add(hemi);
+  const ambient = new THREE.AmbientLight(0xfff1d8, .24);
+  scene.add(ambient);
 
-  const sun = new THREE.DirectionalLight(0xffedc8, 1.25);
+  const sun = new THREE.DirectionalLight(0xffe7bf, 1.5);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
   sun.shadow.camera.left = -70;
   sun.shadow.camera.right = 70;
   sun.shadow.camera.top = 70;
   sun.shadow.camera.bottom = -70;
+  sun.shadow.bias = -0.00014;
   scene.add(sun);
 
   const sky = new THREE.Mesh(
@@ -124,10 +129,10 @@ export function createScene(canvas) {
   function resize() {
     camera.aspect = innerWidth / innerHeight;
     camera.updateProjectionMatrix();
-    renderer.setPixelRatio(Math.min(devicePixelRatio || 1, innerWidth < 900 ? 1.6 : 2));
+    renderer.setPixelRatio(Math.min(devicePixelRatio || 1, innerWidth < 900 ? 1.4 : 1.85));
     renderer.setSize(innerWidth, innerHeight);
     composer.setSize(innerWidth, innerHeight);
   }
 
-  return { renderer, scene, camera, controls, composer, hemi, sun, sky, stars, cloudLayer, world, worldBase, groups, effectBursts: [], resize };
+  return { renderer, scene, camera, controls, composer, hemi, ambient, sun, sky, stars, cloudLayer, world, worldBase, groups, effectBursts: [], resize };
 }
