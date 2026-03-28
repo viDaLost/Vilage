@@ -2,12 +2,12 @@ import { RESOURCE_META, ERA_DATA, WEATHER_TYPES } from '../config.js';
 import { $, $$ } from './dom.js';
 import { fmt } from '../utils/helpers.js';
 
-const PRIMARY_RESOURCES = new Set(['gold', 'food', 'wood', 'stone', 'population', 'workers', 'army', 'prestige']);
+const PRIMARY_RESOURCES = new Set(['gold', 'food', 'wood', 'stone', 'population', 'workers', 'army', 'prestige', 'knowledge']);
 
 export function setupHud() {
   const top = $('#top-bar');
   top.innerHTML = RESOURCE_META.filter(([key]) => PRIMARY_RESOURCES.has(key)).map(([key, icon, label]) => `
-    <div class="res-card">
+    <div class="res-card res-card-${key}">
       <div class="res-icon">${icon}</div>
       <div class="res-meta">
         <div class="res-value" data-res-value="${key}">0</div>
@@ -32,6 +32,7 @@ export function updateHud(state) {
     `Эпоха: ${ERA_DATA[state.era].name}`,
     `Техи: ${state.techs.size}`,
     `Лагеря: ${state.enemyCamps.length}`,
+    `Знание: ${fmt(state.resources.knowledge)}`,
   ].map((t) => `<span class="badge">${t}</span>`).join('');
 
   $('#objectives-list').innerHTML = state.objectives.map((o) => {
@@ -51,6 +52,7 @@ function kingdomText(state) {
   if (state.resources.food < state.resources.population * 2.5) return 'Запасы пищи тают. Усиль фермы и амбары.';
   if (state.resources.threat > 45) return 'Рубежи тревожны. Башни и войска нужны уже сейчас.';
   if (state.construction.length) return 'Над строящимися сотами теперь видно таймер и пыль работ.';
+  if (state.resources.knowledge < 12) return 'Знание теперь видно в верхней панели. Копи его для исследований.';
   if (state.era === 2) return 'Империя вступила в зрелый золотой век.';
   if (state.techProgress) return `Учёные работают: ${state.techProgress.id}`;
   return 'Двойной тап по свободной соте открывает нижнюю быструю постройку.';
