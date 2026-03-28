@@ -135,13 +135,6 @@ function makeUnitMesh(type) {
   group.add(silhouette);
   group.userData.silhouette = silhouette;
 
-  const fallbackBase = new THREE.Mesh(
-    new THREE.CylinderGeometry(type === 'brute' ? .18 : .16, type === 'wolfRider' ? .22 : .18, type === 'wolfRider' ? .95 : .84, 6),
-    new THREE.MeshStandardMaterial({ color: friendly ? 0x6f8fc5 : 0x8c3428, roughness: 1, transparent: true, opacity: .16 })
-  );
-  fallbackBase.position.y = -.02;
-  fallbackBase.castShadow = true;
-  group.add(fallbackBase);
 
   const mapping = UNIT_MODEL_MAP[type];
   if (mapping) {

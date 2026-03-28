@@ -1,12 +1,9 @@
 import * as THREE from 'three';
 import { TERRAIN_TYPES, DECOR_MODELS, GAME_CONFIG } from '../config.js';
-import { loadDecorModel, loadUnitModel } from '../core/assets.js';
+import { loadDecorModel } from '../core/assets.js';
 import { buildTerrain, getTerrainPoint, getTerrainY } from './terrain.js';
 
 const terrainMaterials = new Map();
-const edgeMaterial = null;
-const raycaster = new THREE.Raycaster();
-const down = new THREE.Vector3(0, -1, 0);
 
 function getTerrainMaterial(type) {
   if (terrainMaterials.has(type)) return terrainMaterials.get(type);
@@ -41,7 +38,7 @@ function makeOrganicShape(tile) {
 function makeHexMesh(tile) {
   const geo = new THREE.CircleGeometry(GAME_CONFIG.hexSize * 0.82, 18);
   geo.rotateX(-Math.PI / 2);
-  const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.001, depthWrite: false }));
+  const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.0, depthWrite: false }));
   mesh.position.set(tile.pos.x, tile.surfaceY + 0.02, tile.pos.z);
   mesh.userData.tileId = tile.id;
   return mesh;
@@ -78,36 +75,35 @@ function decorChoices(tile) {
   const list = [];
   switch (tile.type) {
     case 'forest':
-      list.push(r(1) > .45 ? 'pine' : 'tree', r(2) > .55 ? 'bush' : 'bushSmall', r(3) > .65 ? 'flowerYellow' : 'grass');
-      if (r(4) > .72) list.push('logLarge');
+      list.push(r(1) > .45 ? 'pine' : 'tree');
+      if (r(2) > .52) list.push('pineRound');
+      if (r(3) > .68) list.push('logs');
       break;
     case 'grass':
-      if (r(1) > .58) list.push('oak');
-      list.push(r(2) > .5 ? 'grass' : 'bushSmall');
-      if (r(3) > .7) list.push('flowerRed');
+      if (r(1) > .55) list.push('tree');
+      if (r(2) > .72) list.push('logs');
       break;
     case 'fertile':
-      list.push('wheat', r(2) > .45 ? 'corn' : 'dirtRow');
-      if (r(3) > .55) list.push('fence');
+      list.push('crops');
+      if (r(2) > .62) list.push('crops');
       break;
     case 'rock':
-      list.push('rockLarge', r(2) > .55 ? 'rockLargeB' : 'rockSmall');
-      if (r(3) > .65) list.push('rockFlat');
+      list.push(r(1) > .58 ? 'goldRock' : 'rocks');
+      if (r(2) > .5) list.push('rocks');
       break;
     case 'hill':
-      list.push('rockSmall', r(2) > .48 ? 'bushSmall' : 'grass');
-      if (r(3) > .7) list.push('logStack');
+      list.push('rocks');
+      if (r(2) > .58) list.push('tree');
       break;
     case 'river':
-      list.push(r(1) > .5 ? 'lily' : 'grass', 'bushSmall');
-      if (r(2) > .72) list.push('dirtSingle');
+      if (r(1) > .4) list.push('crops');
+      if (r(2) > .66) list.push('tree');
       break;
     case 'sacred':
-      list.push('flowerYellow', r(2) > .55 ? 'bushSmall' : 'grass');
-      if (r(3) > .65) list.push('fence');
+      if (r(1) > .5) list.push('tree');
       break;
   }
-  return list.filter(Boolean).slice(0, GAME_CONFIG.decorPerTileSoftCap || 4);
+  return list.filter(Boolean).slice(0, 2);
 }
 
 export function renderTiles(sceneCtx, state) {
@@ -168,19 +164,18 @@ async function spawnDecorModel(sceneCtx, tile, key, slot = 0) {
   const cfg = DECOR_MODELS[key];
   if (!cfg) return;
   try {
-    const root = cfg.root === 'units' ? 'units' : (cfg.root || 'decor');
-    const modelData = root === 'units' ? await loadUnitModel(cfg.file) : { scene: await loadDecorModel(cfg.file, root) };
-    const model = modelData.scene;
+    const root = 'decor';
+    const model = await loadDecorModel(cfg.file, root);
     if (!model) return;
     const seed = Math.sin(tile.q * 53.2 + tile.r * 71.9 + slot * 19.3) * 43758.5453;
     const rand = seed - Math.floor(seed);
     const angle = rand * Math.PI * 2;
-    const radius = slot === 0 ? 0.18 : 0.35 + slot * 0.16;
+    const radius = slot === 0 ? 0.35 : 0.75 + slot * 0.28;
     const x = tile.pos.x + Math.cos(angle) * radius;
     const z = tile.pos.z + Math.sin(angle) * radius;
     const point = getTerrainPoint(x, z);
     const y = point.y + (cfg.y || 0.0);
-    model.scale.setScalar((cfg.scale || 0.014) * (0.88 + rand * 0.18));
+    model.scale.setScalar((cfg.scale || 0.25) * (0.92 + rand * 0.16));
     model.position.set(point.x, y, point.z);
     model.rotation.y = rand * Math.PI * 2;
     model.traverse((obj) => {
@@ -209,5 +204,5 @@ export async function populateDecorModels(sceneCtx, state) {
     });
   }
   // avoid blocking on any single failed asset
-  await Promise.allSettled(tasks);
+  for (let i = 0; i < tasks.length; i += 8) { await Promise.allSettled(tasks.slice(i, i + 8)); }
 }
