@@ -1,5 +1,5 @@
 export const GAME_CONFIG = {
-  saveKey: 'empire-east-3d-rts-save-v18-unitfix',
+  saveKey: 'empire-east-3d-rts-save-v19',
   mapRadius: 13,
   hexSize: 1.72,
   axialScaleX: 0.985,
@@ -234,13 +234,13 @@ export const DECOR_MODELS = {
 };
 
 export const UNIT_MODEL_MAP = {
-  worker: { file: 'monk.gltf', targetHeight: 0.45, y: 0.0, rotY: Math.PI, faceOffset: Math.PI },
-  militia: { file: 'warrior.gltf', targetHeight: 0.48, y: 0.0, rotY: Math.PI, faceOffset: Math.PI },
-  swordsman: { file: 'rogue.gltf', targetHeight: 0.47, y: 0.0, rotY: Math.PI, faceOffset: Math.PI },
-  raider: { file: 'rogue.gltf', targetHeight: 0.47, y: 0.0, rotY: Math.PI, faceOffset: Math.PI },
-  raiderArcher: { file: 'ranger.gltf', targetHeight: 0.47, y: 0.0, rotY: Math.PI, faceOffset: Math.PI },
-  brute: { file: 'warrior.gltf', targetHeight: 0.55, y: 0.0, rotY: Math.PI, faceOffset: Math.PI },
-  wolfRider: { file: 'wizard.gltf', targetHeight: 0.52, y: 0.0, rotY: Math.PI, faceOffset: Math.PI },
+  worker: { file: 'monk.gltf', targetHeight: 0.12, y: 0.0, rotY: 3.141592653589793, faceOffset: Math.PI },
+  militia: { file: 'warrior.gltf', targetHeight: 0.13, y: 0.0, rotY: 3.141592653589793, faceOffset: Math.PI },
+  swordsman: { file: 'rogue.gltf', targetHeight: 0.13, y: 0.0, rotY: 3.141592653589793, faceOffset: Math.PI },
+  raider: { file: 'rogue.gltf', targetHeight: 0.13, y: 0.0, rotY: 3.141592653589793, faceOffset: Math.PI },
+  raiderArcher: { file: 'ranger.gltf', targetHeight: 0.13, y: 0.0, rotY: 3.141592653589793, faceOffset: Math.PI },
+  brute: { file: 'warrior.gltf', targetHeight: 0.16, y: 0.0, rotY: 3.141592653589793, faceOffset: Math.PI },
+  wolfRider: { file: 'wizard.gltf', targetHeight: 0.15, y: 0.0, rotY: 3.141592653589793, faceOffset: Math.PI },
 };
 
 export const UNIT_VISUALS = {
