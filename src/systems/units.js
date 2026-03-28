@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { AnimationMixer, LoopOnce } from 'three';
-import { GAME_CONFIG, UNITS, UNIT_MODEL_MAP, UNIT_VISUALS } from '../config.js';
+import { GAME_CONFIG, UNITS, UNIT_MODEL_MAP, UNIT_VISUALS } from '../config.js?v=999';
 import { getCapital, buildingCenter } from './buildings.js';
 import { dist2 } from '../utils/helpers.js';
 import { spawnCollapse } from './combat.js';
@@ -134,7 +134,6 @@ function makeUnitMesh(type) {
   const silhouette = makeSilhouette(type, friendly);
   group.add(silhouette);
   group.userData.silhouette = silhouette;
-
 
   const mapping = UNIT_MODEL_MAP[type];
   if (mapping) {
