@@ -73,7 +73,7 @@ async function bootstrap() {
   setLoading(10, 'Генерация рельефа…');
   generateWorld(state);
 
-  setLoading(30, 'Отрисовка земли и окружения…');
+  setLoading(30, 'Загрузка нового ландшафта Kenney…');
   renderTiles(sceneCtx, state);
 
   setLoading(48, 'Размещение столицы…');

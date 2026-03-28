@@ -1,5 +1,5 @@
 export const GAME_CONFIG = {
-  saveKey: 'empire-east-3d-rts-save-v11-kenney',
+  saveKey: 'empire-east-3d-rts-save-v13-kenney-terrain-units',
   mapRadius: 13,
   hexSize: 1.72,
   axialScaleX: 0.985,
@@ -250,13 +250,13 @@ export const DECOR_MODELS = {
 };
 
 export const UNIT_MODEL_MAP = {
-  worker: { file: 'monk.gltf', scale: 0.34, y: -0.42, rotY: 0, faceOffset: 0 },
-  militia: { file: 'warrior.gltf', scale: 0.36, y: -0.46, rotY: 0, faceOffset: 0 },
-  swordsman: { file: 'rogue.gltf', scale: 0.38, y: -0.48, rotY: 0, faceOffset: 0 },
-  raider: { file: 'rogue.gltf', scale: 0.38, y: -0.48, rotY: 0, faceOffset: 0 },
-  raiderArcher: { file: 'ranger.gltf', scale: 0.36, y: -0.46, rotY: 0, faceOffset: 0 },
-  brute: { file: 'warrior.gltf', scale: 0.42, y: -0.5, rotY: 0, faceOffset: 0 },
-  wolfRider: { file: 'wizard.gltf', scale: 0.4, y: -0.48, rotY: 0, faceOffset: 0 },
+  worker: { file: 'monk.gltf', scale: 0.12, y: -0.66, rotY: 0, faceOffset: 3.141592653589793 },
+  militia: { file: 'warrior.gltf', scale: 0.13, y: -0.69, rotY: 0, faceOffset: 3.141592653589793 },
+  swordsman: { file: 'rogue.gltf', scale: 0.13, y: -0.69, rotY: 0, faceOffset: 3.141592653589793 },
+  raider: { file: 'rogue.gltf', scale: 0.13, y: -0.69, rotY: 0, faceOffset: 3.141592653589793 },
+  raiderArcher: { file: 'ranger.gltf', scale: 0.125, y: -0.68, rotY: 0, faceOffset: 3.141592653589793 },
+  brute: { file: 'warrior.gltf', scale: 0.145, y: -0.70, rotY: 0, faceOffset: 3.141592653589793 },
+  wolfRider: { file: 'wizard.gltf', scale: 0.14, y: -0.69, rotY: 0, faceOffset: 3.141592653589793 },
 };
 
 export const UNIT_VISUALS = {
