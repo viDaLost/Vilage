@@ -283,6 +283,30 @@ body { touch-action: manipulation; }
   box-shadow: 0 8px 20px rgba(0,0,0,.28);
   white-space: nowrap;
 }
+
+#health-overlays {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 34;
+}
+.health-bar {
+  position: absolute;
+  left: 0; top: 0;
+  transform: translate(-50%, -50%);
+  width: 44px;
+  height: 7px;
+  border-radius: 999px;
+  background: rgba(0,0,0,.48);
+  border: 1px solid rgba(255,255,255,.14);
+  overflow: hidden;
+  box-shadow: 0 6px 14px rgba(0,0,0,.22);
+}
+.health-fill {
+  height: 100%;
+  width: 100%;
+  background: linear-gradient(90deg, #ff6b62, #ffd66b 55%, #88d890);
+}
 #modal-overlay {
   position: fixed;
   inset: 0;
