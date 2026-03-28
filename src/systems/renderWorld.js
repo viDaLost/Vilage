@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { TERRAIN_TYPES } from '../config.js';
+import { TERRAIN_TYPES, DECOR_MODELS, GAME_CONFIG } from '../config.js';
+import { loadDecorModel, loadUnitModel } from '../core/assets.js';
 import { createHexShape, isTileInsideTerritory } from './world.js';
 
 const terrainMaterials = new Map();
@@ -185,4 +186,58 @@ export function renderRoads(sceneCtx, state) {
     mesh.receiveShadow = true;
     groups.roads.add(mesh);
   });
+}
+
+
+function seeded(tile, salt = 1) {
+  const x = Math.sin(tile.q * 127.1 + tile.r * 311.7 + salt * 74.7) * 43758.5453123;
+  return x - Math.floor(x);
+}
+
+function decorChoice(tile) {
+  const r = seeded(tile, 1);
+  if (tile.type === 'forest') return r > 0.52 ? 'pine' : 'trees';
+  if (tile.type === 'rock') return r > 0.78 ? 'gold' : 'rocks';
+  if (tile.type === 'hill') return r > 0.7 ? 'gold' : 'rocks';
+  if (tile.type === 'fertile') return r > 0.42 ? 'crops' : null;
+  if (tile.type === 'grass') return r > 0.83 ? 'logs' : null;
+  if (tile.type === 'sacred') return r > 0.55 ? 'cleric' : 'wizard';
+  return null;
+}
+
+async function spawnDecorModel(sceneCtx, tile, key) {
+  if (!key || tile.buildingId) return;
+  const cfg = DECOR_MODELS[key];
+  if (!cfg) return;
+  const rand = seeded(tile, 3);
+  try {
+    const root = cfg.root === 'units' ? 'units' : 'decor';
+    const model = root === 'units' ? await loadUnitModel(cfg.file) : await loadDecorModel(cfg.file);
+    if (!model) return;
+    const scale = (cfg.scale || 0.7) * (0.88 + rand * 0.26);
+    model.scale.setScalar(scale);
+    model.rotation.y = rand * Math.PI * 2;
+    model.position.set(
+      tile.pos.x + (seeded(tile, 5) - 0.5) * 0.6,
+      tile.height + (cfg.y || 0.02),
+      tile.pos.z + (seeded(tile, 7) - 0.5) * 0.6
+    );
+    model.traverse((obj) => { if (obj.isMesh) { obj.castShadow = true; obj.receiveShadow = true; } });
+    sceneCtx.groups.decor.add(model);
+    tile.decorMeshes.push(model);
+  } catch {}
+}
+
+export async function populateDecorModels(sceneCtx, state) {
+  const tasks = [];
+  state.map.forEach((tile) => {
+    if (tile.buildingId || tile.type === 'water') return;
+    const c = decorChoice(tile);
+    if (!c) return;
+    const densityRoll = seeded(tile, 11);
+    const minRoll = tile.type === 'forest' || tile.type === 'rock' || tile.type === 'hill' ? 0.14 : 1 - GAME_CONFIG.decorModelDensity;
+    if (densityRoll < minRoll) return;
+    tasks.push(spawnDecorModel(sceneCtx, tile, c));
+  });
+  await Promise.all(tasks);
 }

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { UNITS } from '../config.js';
+import { UNITS, UNIT_MODEL_MAP } from '../config.js';
+import { loadUnitModel } from '../core/assets.js';
 import { getCapital, buildingCenter } from './buildings.js';
 import { dist2 } from '../utils/helpers.js';
 import { spawnCollapse } from './combat.js';
@@ -14,82 +15,51 @@ function makeBanner(color) {
   return [pole, cloth];
 }
 
+
 function makeUnitMesh(type) {
   const cfg = UNITS[type];
-  const group = new THREE.Group();
   const friendly = !cfg.hostile;
-  const mainColor = cfg.hostile ? 0xa53d31 : (type === 'worker' ? 0xd7b15f : 0xc8cdc9);
-  const accentColor = cfg.hostile ? 0x672017 : 0x3a5a8f;
+  const group = new THREE.Group();
 
-  const body = new THREE.Mesh(new THREE.CapsuleGeometry(.2, .52, 4, 8), new THREE.MeshStandardMaterial({ color: mainColor, roughness: .78, metalness: .08 }));
-  const head = new THREE.Mesh(new THREE.SphereGeometry(.16, 10, 10), new THREE.MeshStandardMaterial({ color: 0xe1c29d, roughness: 1 }));
-  body.castShadow = head.castShadow = true;
-  head.position.y = .54;
-  group.add(body, head);
-  group.userData.body = body;
+  const hiddenBody = new THREE.Mesh(
+    new THREE.CapsuleGeometry(.12, .32, 4, 6),
+    new THREE.MeshStandardMaterial({ color: friendly ? 0x7ba6ff : 0xbf4c40, roughness: .95, transparent: true, opacity: 0.001 })
+  );
+  hiddenBody.position.y = 0;
+  hiddenBody.castShadow = false;
+  hiddenBody.receiveShadow = false;
+  group.add(hiddenBody);
+  group.userData.body = hiddenBody;
 
-  if (type === 'worker') {
-    const hat = new THREE.Mesh(new THREE.ConeGeometry(.24, .22, 8), new THREE.MeshStandardMaterial({ color: 0x9b6c2a, roughness: 1 }));
-    hat.position.y = .72;
-    const basket = new THREE.Mesh(new THREE.BoxGeometry(.16, .16, .22), new THREE.MeshStandardMaterial({ color: 0x7b5729, roughness: 1 }));
-    basket.position.set(-.24, .14, -.06);
-    basket.rotation.z = -.35;
-    group.add(hat, basket);
-  } else if (type === 'militia' || type === 'swordsman') {
-    const shield = new THREE.Mesh(new THREE.CylinderGeometry(.12, .12, .08, 8), new THREE.MeshStandardMaterial({ color: accentColor, roughness: 1 }));
-    shield.rotation.z = Math.PI / 2;
-    shield.position.set(-.24, .14, 0);
-    const sword = new THREE.Mesh(new THREE.BoxGeometry(.05, .46, .05), new THREE.MeshStandardMaterial({ color: 0xcfcfcf, roughness: .45, metalness: .3 }));
-    sword.position.set(.24, .18, 0);
-    sword.rotation.z = -.15;
-    group.add(shield, sword);
-    makeBanner(friendly ? 0x466fb0 : 0x992b1d).forEach((x) => group.add(x));
-  } else if (cfg.hostile) {
-    const shoulders = new THREE.Mesh(new THREE.BoxGeometry(.4, .14, .32), new THREE.MeshStandardMaterial({ color: 0x552116, roughness: 1 }));
-    shoulders.position.y = .24;
-    const cape = new THREE.Mesh(new THREE.BoxGeometry(.28, .38, .05), new THREE.MeshStandardMaterial({ color: 0x5e1816, roughness: 1 }));
-    cape.position.set(0, .04, -.12);
-    group.add(shoulders, cape);
-    if (type === 'raiderArcher') {
-      const bow = new THREE.Mesh(new THREE.TorusGeometry(.16, .02, 6, 12, Math.PI), new THREE.MeshStandardMaterial({ color: 0x8b6030, roughness: 1 }));
-      bow.rotation.z = Math.PI / 2;
-      bow.position.set(.23, .25, 0);
-      const quiver = new THREE.Mesh(new THREE.CylinderGeometry(.05, .06, .34, 6), new THREE.MeshStandardMaterial({ color: 0x6a431d, roughness: 1 }));
-      quiver.position.set(-.18, .16, -.12);
-      quiver.rotation.z = -.4;
-      group.add(bow, quiver);
-    } else if (type === 'brute') {
-      body.scale.set(1.18, 1.08, 1.18);
-      const axe = new THREE.Mesh(new THREE.BoxGeometry(.06, .68, .06), new THREE.MeshStandardMaterial({ color: 0x6a4528, roughness: 1 }));
-      axe.position.set(.26, .22, 0);
-      axe.rotation.z = -.42;
-      const blade = new THREE.Mesh(new THREE.BoxGeometry(.2, .18, .05), new THREE.MeshStandardMaterial({ color: 0xb7b9bd, roughness: .5, metalness: .2 }));
-      blade.position.set(.43, .5, 0);
-      blade.rotation.z = -.42;
-      group.add(axe, blade);
-    } else if (type === 'wolfRider') {
-      body.scale.set(1.1, .9, 1.45);
-      const rider = new THREE.Mesh(new THREE.CapsuleGeometry(.12, .22, 4, 6), new THREE.MeshStandardMaterial({ color: 0x6a2419, roughness: .9 }));
-      rider.position.y = .34;
-      const snout = new THREE.Mesh(new THREE.ConeGeometry(.09, .18, 6), new THREE.MeshStandardMaterial({ color: 0x3b2618, roughness: 1 }));
-      snout.rotation.z = -Math.PI / 2;
-      snout.position.set(.28, .02, 0);
-      group.add(rider, snout);
-    } else {
-      const spear = new THREE.Mesh(new THREE.CylinderGeometry(.02, .02, .72, 5), new THREE.MeshStandardMaterial({ color: 0x5d4326, roughness: 1 }));
-      spear.position.set(.24, .26, 0);
-      spear.rotation.z = -.38;
-      const spike = new THREE.Mesh(new THREE.ConeGeometry(.06, .18, 5), new THREE.MeshStandardMaterial({ color: 0xc5b58f, roughness: .6 }));
-      spike.position.set(.37, .58, 0);
-      spike.rotation.z = -.38;
-      group.add(spear, spike);
-    }
-    makeBanner(type === 'brute' ? 0x50545f : type === 'wolfRider' ? 0x563516 : 0x8a2318).forEach((x) => group.add(x));
+  const fallbackBase = new THREE.Mesh(
+    new THREE.CylinderGeometry(.16, .18, .84, 6),
+    new THREE.MeshStandardMaterial({ color: friendly ? 0x6f8fc5 : 0x8c3428, roughness: 1, transparent: true, opacity: .18 })
+  );
+  fallbackBase.position.y = -.02;
+  fallbackBase.castShadow = true;
+  group.add(fallbackBase);
+
+  const mapping = UNIT_MODEL_MAP[type];
+  if (mapping?.file) {
+    loadUnitModel(mapping.file).then((model) => {
+      model.scale.setScalar(mapping.scale || 0.8);
+      model.rotation.y = mapping.rotY || Math.PI;
+      model.position.y = mapping.y ?? -0.42;
+      model.traverse((obj) => {
+        if (obj.isMesh) {
+          obj.castShadow = true;
+          obj.receiveShadow = true;
+        }
+      });
+      group.add(model);
+      fallbackBase.visible = false;
+      group.userData.gltf = model;
+    }).catch(() => {});
   }
 
   const ring = new THREE.Mesh(
     new THREE.RingGeometry(.34, .46, 24),
-    new THREE.MeshBasicMaterial({ color: cfg.hostile ? 0xff6f61 : 0xffd66b, transparent: true, opacity: .3, side: THREE.DoubleSide })
+    new THREE.MeshBasicMaterial({ color: cfg.hostile ? 0xff6f61 : 0xffd66b, transparent: true, opacity: .32, side: THREE.DoubleSide })
   );
   ring.rotation.x = -Math.PI / 2;
   ring.position.y = -.42;
