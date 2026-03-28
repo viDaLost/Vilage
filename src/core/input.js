@@ -7,6 +7,8 @@ export function setupInput(sceneCtx, state, handlers) {
   const { camera, renderer, groups } = sceneCtx;
   const raycaster = new THREE.Raycaster();
   const pointer = new THREE.Vector2();
+  const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  const hitPoint = new THREE.Vector3();
   let down = { x: 0, y: 0, t: 0 };
 
   const closeTransientUi = (target) => {
@@ -15,24 +17,52 @@ export function setupInput(sceneCtx, state, handlers) {
     closeModal();
   };
 
-  renderer.domElement.addEventListener('pointerdown', (e) => {
-    down = { x: e.clientX, y: e.clientY, t: performance.now() };
-    state.dragging = false;
-  });
-
-  renderer.domElement.addEventListener('pointermove', (e) => {
-    if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > 10) state.dragging = true;
-  });
-
-  renderer.domElement.addEventListener('pointerup', (e) => {
-    if (state.dragging) return;
-    if (performance.now() - down.t > 360) return;
-
+  const updatePointer = (e) => {
     const rect = renderer.domElement.getBoundingClientRect();
     pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
     pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
     raycaster.setFromCamera(pointer, camera);
+  };
 
+  const findNearestTile = () => {
+    if (!raycaster.ray.intersectPlane(groundPlane, hitPoint)) return null;
+    let best = null;
+    let bestDist = Infinity;
+    for (const tile of state.map) {
+      const dx = hitPoint.x - tile.pos.x;
+      const dz = hitPoint.z - tile.pos.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = tile;
+      }
+    }
+    return bestDist <= GAME_CONFIG.hexSize * 1.15 ? best : null;
+  };
+
+  const dispatchTile = (tile) => {
+    const now = performance.now();
+    const isDoubleTap = state.lastTapTileId === tile.id && (now - state.lastTapAt) <= GAME_CONFIG.doubleTapMs;
+    state.lastTapTileId = tile.id;
+    state.lastTapAt = now;
+    if (isDoubleTap && handlers.onTileDouble) handlers.onTileDouble(tile);
+    else handlers.onTile(tile);
+  };
+
+  renderer.domElement.addEventListener('pointerdown', (e) => {
+    down = { x: e.clientX, y: e.clientY, t: performance.now() };
+    state.dragging = false;
+  }, { passive: true });
+
+  renderer.domElement.addEventListener('pointermove', (e) => {
+    if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > 12) state.dragging = true;
+  }, { passive: true });
+
+  renderer.domElement.addEventListener('pointerup', (e) => {
+    if (state.dragging) return;
+    if (performance.now() - down.t > 420) return;
+
+    updatePointer(e);
     closeTransientUi(e.target);
 
     const unitHits = raycaster.intersectObjects(groups.units.children, true);
@@ -48,31 +78,19 @@ export function setupInput(sceneCtx, state, handlers) {
       while (obj && !obj.userData.tileId && obj.parent) obj = obj.parent;
       const tileId = obj?.userData?.tileId;
       const tile = tileId ? state.mapIndex.get(tileId) : null;
-      if (tile) {
-        const now = performance.now();
-        const isDoubleTap = state.lastTapTileId === tile.id && (now - state.lastTapAt) <= GAME_CONFIG.doubleTapMs;
-        state.lastTapTileId = tile.id;
-        state.lastTapAt = now;
-        return isDoubleTap && handlers.onTileDouble ? handlers.onTileDouble(tile) : handlers.onTile(tile);
-      }
+      if (tile) return dispatchTile(tile);
     }
 
     const hits = raycaster.intersectObjects(groups.tiles.children, false);
-    if (!hits.length) {
-      state.selected = null;
-      handlers.onEmpty?.();
-      return;
+    if (hits.length) {
+      const tile = state.map.find((t) => t.mesh === hits[0].object);
+      if (tile) return dispatchTile(tile);
     }
 
-    const tile = state.map.find((t) => t.mesh === hits[0].object);
-    if (!tile) return;
+    const fallbackTile = findNearestTile();
+    if (fallbackTile) return dispatchTile(fallbackTile);
 
-    const now = performance.now();
-    const isDoubleTap = state.lastTapTileId === tile.id && (now - state.lastTapAt) <= GAME_CONFIG.doubleTapMs;
-    state.lastTapTileId = tile.id;
-    state.lastTapAt = now;
-
-    if (isDoubleTap && handlers.onTileDouble) handlers.onTileDouble(tile);
-    else handlers.onTile(tile);
+    state.selected = null;
+    handlers.onEmpty?.();
   });
 }

@@ -24,21 +24,21 @@ export function createScene(canvas) {
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = innerWidth < 900 ? 1.14 : 1.08;
+  renderer.toneMappingExposure = innerWidth < 900 ? 1.24 : 1.1;
 
   const scene = new THREE.Scene();
-  scene.fog = new THREE.Fog(0x1a100a, 28, 126);
+  scene.fog = new THREE.Fog(0x2a180f, 34, 132);
 
-  const camera = new THREE.PerspectiveCamera(innerWidth < 760 ? 54 : 50, innerWidth / innerHeight, .1, 800);
-  camera.position.set(20, 25, 19);
+  const camera = new THREE.PerspectiveCamera(innerWidth < 760 ? 52 : 50, innerWidth / innerHeight, .1, 800);
+  camera.position.set(innerWidth < 760 ? 18 : 20, innerWidth < 760 ? 22 : 25, innerWidth < 760 ? 18 : 19);
 
   const controls = new OrbitControls(camera, canvas);
   controls.enableDamping = true;
   controls.dampingFactor = .065;
-  controls.maxDistance = innerWidth < 760 ? 58 : 72;
-  controls.minDistance = innerWidth < 760 ? 12 : 10;
-  controls.maxPolarAngle = Math.PI / 2.16;
-  controls.minPolarAngle = Math.PI / 4.7;
+  controls.maxDistance = innerWidth < 760 ? 52 : 72;
+  controls.minDistance = innerWidth < 760 ? 13 : 10;
+  controls.maxPolarAngle = Math.PI / 2.22;
+  controls.minPolarAngle = Math.PI / 4.4;
   controls.enablePan = false;
   controls.target.set(0, 1.4, 0);
 
@@ -46,12 +46,12 @@ export function createScene(canvas) {
   composer.addPass(new RenderPass(scene, camera));
   composer.addPass(new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), innerWidth < 800 ? .16 : .13, .42, .9));
 
-  const hemi = new THREE.HemisphereLight(0xf6f2ea, 0x53321a, 1.18);
+  const hemi = new THREE.HemisphereLight(0xfff2de, 0x5b3216, 1.32);
   scene.add(hemi);
-  const ambient = new THREE.AmbientLight(0xfff1d8, .24);
+  const ambient = new THREE.AmbientLight(0xffefdb, .34);
   scene.add(ambient);
 
-  const sun = new THREE.DirectionalLight(0xffe7bf, 1.5);
+  const sun = new THREE.DirectionalLight(0xffe9c8, 1.72);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
   sun.shadow.camera.left = -70;
