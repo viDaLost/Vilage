@@ -25,6 +25,17 @@ const sceneCtx = createScene(document.getElementById('game'));
 let ghostMesh = null;
 let lastTime = performance.now();
 let constructionDustTimer = 0;
+let emergencyReleased = false;
+function emergencyRelease() {
+  if (emergencyReleased) return;
+  emergencyReleased = true;
+  const ls = $('#loading-screen');
+  if (ls) ls.style.display = 'none';
+  state.timeScale = 1;
+  try { setSpeedButton(1); } catch {}
+  try { showRules(); } catch {}
+  try { animate(); } catch {}
+}
 
 function setLoading(percent, text) {
   $('#loading-fill').style.width = `${percent}%`;
@@ -36,6 +47,7 @@ async function bootstrap() {
   const releaseLoading = () => {
     if (loadingReleased) return;
     loadingReleased = true;
+    emergencyReleased = true;
     $('#loading-screen').style.display = 'none';
     state.timeScale = 1;
     setSpeedButton(1);
@@ -93,10 +105,10 @@ async function bootstrap() {
 
 setTimeout(() => {
   if ($('#loading-screen')?.style.display !== 'none') {
-    setLoading(96, 'Почти готово… запускаем мир');
-    try { releaseLoading(); } catch {}
+    setLoading(96, 'Лёгкий запуск мира…');
+    emergencyRelease();
   }
-}, 4500);
+}, 2500);
 
 async function spawnCapital() {
   const center = state.map.filter((t) => t.type !== 'water').sort((a, b) => Math.hypot(a.pos.x, a.pos.z) - Math.hypot(b.pos.x, b.pos.z))[0];
@@ -677,10 +689,7 @@ bootstrap().catch((err) => {
   console.error('Bootstrap failed', err);
   try {
     $('#loading-text').textContent = 'Мир запущен в безопасном режиме';
-    $('#loading-screen').style.display = 'none';
-    state.timeScale = 1;
-    setSpeedButton(1);
-    animate();
-    notify('Часть моделей не загрузилась, но игра запущена');
+    notify('Часть моделей отключена для стабильного запуска');
   } catch {}
+  emergencyRelease();
 });
