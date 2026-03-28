@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { AnimationMixer, LoopOnce } from 'three';
 import { UNITS, UNIT_MODEL_MAP, UNIT_VISUALS } from '../config.js';
 import { loadUnitModel } from '../core/assets.js';
 import { getCapital, buildingCenter } from './buildings.js';
@@ -46,14 +47,74 @@ function addWeapon(group, kind, color) {
 function makeSilhouette(type, friendly) {
   const vis = UNIT_VISUALS[type] || UNIT_VISUALS.militia;
   const body = new THREE.Group();
-  const mainMat = new THREE.MeshStandardMaterial({ color: vis.silhouette || (friendly ? 0x738ec7 : 0xa24b40), roughness: .95, transparent: true, opacity: .38 });
+  const mainMat = new THREE.MeshStandardMaterial({ color: vis.silhouette || (friendly ? 0x738ec7 : 0xa24b40), roughness: .95, transparent: true, opacity: .3 });
   const torso = new THREE.Mesh(new THREE.CapsuleGeometry(type === 'brute' ? .17 : .13, type === 'wolfRider' ? .44 : .34, 4, 8), mainMat);
   torso.position.y = .03;
-  const head = new THREE.Mesh(new THREE.SphereGeometry(type === 'brute' ? .12 : .1, 8, 8), new THREE.MeshStandardMaterial({ color: 0xf2d2b8, roughness: 1, transparent: true, opacity: .3 }));
+  const head = new THREE.Mesh(new THREE.SphereGeometry(type === 'brute' ? .12 : .1, 8, 8), new THREE.MeshStandardMaterial({ color: 0xf2d2b8, roughness: 1, transparent: true, opacity: .22 }));
   head.position.y = .34;
   body.add(torso, head);
   addWeapon(body, vis.weapon, vis.ring || 0xffd66b);
   return body;
+}
+
+function findClip(animations, keywords, fallbackIndex = 0) {
+  if (!animations?.length) return null;
+  const lowered = keywords.map((k) => k.toLowerCase());
+  let clip = animations.find((a) => lowered.some((k) => (a.name || '').toLowerCase().includes(k)));
+  if (!clip) clip = animations[fallbackIndex] || animations[0];
+  return clip;
+}
+
+function setupMixer(group, model, animations, type) {
+  const mixer = new AnimationMixer(model);
+  const clips = {
+    idle: findClip(animations, ['idle']),
+    walk: findClip(animations, ['walk', 'run']),
+    attack: findClip(animations, ['attack', 'shoot', 'staff_attack', 'sword_attack', 'dagger_attack', 'spell', 'bow_shoot']),
+    hit: findClip(animations, ['recievehit', 'receivehit', 'hit']),
+    death: findClip(animations, ['death'])
+  };
+  const actions = {};
+  Object.entries(clips).forEach(([k, clip]) => {
+    if (!clip) return;
+    const act = mixer.clipAction(clip);
+    act.enabled = true;
+    act.clampWhenFinished = k === 'attack' || k === 'hit' || k === 'death';
+    if (k === 'attack' || k === 'hit' || k === 'death') act.setLoop(LoopOnce, 1);
+    actions[k] = act;
+  });
+  group.userData.mixer = mixer;
+  group.userData.animActions = actions;
+  group.userData.animState = null;
+  setAnimationState(group, type === 'worker' ? 'walk' : 'idle');
+}
+
+function setAnimationState(group, next) {
+  const actions = group.userData.animActions;
+  if (!actions || !actions[next]) return;
+  if (group.userData.animState === next) return;
+  const prev = actions[group.userData.animState];
+  const nextAction = actions[next];
+  if (prev && prev !== nextAction) prev.fadeOut(.18);
+  nextAction.reset().fadeIn(.18).play();
+  group.userData.animState = next;
+}
+
+function playOneShot(group, kind, fallback = 'idle') {
+  const actions = group.userData.animActions;
+  if (!actions?.[kind]) return;
+  const action = actions[kind];
+  const idle = actions[fallback] || actions.idle;
+  action.reset();
+  action.play();
+  group.userData.animState = kind;
+  if (kind !== 'death') {
+    setTimeout(() => {
+      if (group.userData.animState === kind && idle) {
+        setAnimationState(group, fallback);
+      }
+    }, 420);
+  }
 }
 
 function makeUnitMesh(type) {
@@ -66,8 +127,6 @@ function makeUnitMesh(type) {
     new THREE.CapsuleGeometry(type === 'brute' ? .16 : .12, type === 'wolfRider' ? .42 : .32, 4, 6),
     new THREE.MeshStandardMaterial({ color: friendly ? 0x7ba6ff : 0xbf4c40, roughness: .95, transparent: true, opacity: 0.001 })
   );
-  hiddenBody.castShadow = false;
-  hiddenBody.receiveShadow = false;
   group.add(hiddenBody);
   group.userData.body = hiddenBody;
 
@@ -85,19 +144,21 @@ function makeUnitMesh(type) {
 
   const mapping = UNIT_MODEL_MAP[type];
   if (mapping?.file) {
-    loadUnitModel(mapping.file).then((model) => {
-      model.scale.setScalar(mapping.scale || 0.8);
-      model.rotation.y = mapping.rotY || Math.PI;
-      model.position.y = mapping.y ?? -0.42;
-      model.traverse((obj) => {
+    loadUnitModel(mapping.file).then(({ scene, animations }) => {
+      scene.scale.setScalar(mapping.scale || 0.8);
+      scene.rotation.y = mapping.rotY || Math.PI;
+      scene.position.y = mapping.y ?? -0.42;
+      scene.traverse((obj) => {
         if (obj.isMesh) {
           obj.castShadow = true;
           obj.receiveShadow = true;
         }
       });
-      group.add(model);
-      group.userData.gltf = model;
+      group.add(scene);
+      group.userData.gltf = scene;
       fallbackBase.visible = false;
+      silhouette.visible = false;
+      setupMixer(group, scene, animations, type);
     }).catch(() => {});
   }
 
@@ -132,6 +193,8 @@ export function spawnUnit(sceneCtx, state, type, pos, target = null) {
     stepPhase: Math.random() * Math.PI * 2,
     attackFlash: 0,
     hitFlash: 0,
+    healthEl: null,
+    dead: false,
   };
   entity.mesh.position.copy(entity.pos);
   entity.mesh.position.y += .8;
@@ -191,6 +254,7 @@ function damageNearestBuilding(sceneCtx, state, unit, notify) {
   nearest.hitFlash = .25;
   unit.attackCooldown = unit.type === 'raiderArcher' ? 1.45 : 1.05;
   unit.attackFlash = .16;
+  playOneShot(unit.mesh, 'attack');
   if (nearest.hp <= 0) {
     const center = buildingCenter(state, nearest);
     spawnCollapse(sceneCtx, center, nearest.type === 'wall' ? 0x9c9c9c : 0xa06b44);
@@ -206,6 +270,16 @@ function damageNearestBuilding(sceneCtx, state, unit, notify) {
   }
 }
 
+function cleanupDeadUnit(sceneCtx, state, unit, index) {
+  if (unit.dead) return;
+  unit.dead = true;
+  spawnCollapse(sceneCtx, unit.pos.clone().setY(unit.pos.y + .6), unit.hostile ? 0xd36d58 : 0x8ebbe0);
+  if (unit.mesh.userData.mixer) playOneShot(unit.mesh, 'death', 'idle');
+  sceneCtx.groups.units.remove(unit.mesh);
+  state.units.splice(index, 1);
+  if (!unit.hostile) state.stats.armyUnits = state.units.filter((u) => !u.hostile && u.type !== 'worker').length;
+}
+
 export function updateUnits(sceneCtx, state, dt, notify) {
   const capital = getCapital(state);
   const capitalTile = capital ? state.mapIndex.get(capital.tileId) : null;
@@ -217,6 +291,7 @@ export function updateUnits(sceneCtx, state, dt, notify) {
     unit.hitFlash = Math.max(0, unit.hitFlash - dt * 3.4);
 
     let targetPos = null;
+    let moved = false;
     if (unit.hostile) {
       const { best: defender, bestD } = nearestTarget(unit, state, (u) => !u.hostile && u.type !== 'worker', unit.range > 2 ? 8 : 6);
       if (defender) {
@@ -226,6 +301,8 @@ export function updateUnits(sceneCtx, state, dt, notify) {
           defender.hitFlash = .18;
           unit.attackCooldown = unit.type === 'raiderArcher' ? 1.45 : 1.15;
           unit.attackFlash = .15;
+          playOneShot(unit.mesh, 'attack');
+          if (defender.hp <= 0) cleanupDeadUnit(sceneCtx, state, defender, state.units.indexOf(defender));
         }
       } else if (capitalTile) {
         targetPos = capitalTile.pos;
@@ -240,6 +317,8 @@ export function updateUnits(sceneCtx, state, dt, notify) {
           enemy.hitFlash = .18;
           unit.attackCooldown = .95;
           unit.attackFlash = .12;
+          playOneShot(unit.mesh, 'attack');
+          if (enemy.hp <= 0) cleanupDeadUnit(sceneCtx, state, enemy, state.units.indexOf(enemy));
         }
       } else if (capitalTile) {
         targetPos = capitalTile.pos;
@@ -255,43 +334,49 @@ export function updateUnits(sceneCtx, state, dt, notify) {
         unit.pos.addScaledVector(dir, unit.speed * dt);
         unit.mesh.lookAt(unit.pos.x + dir.x, unit.mesh.position.y, unit.pos.z + dir.z);
         unit.stepPhase += dt * unit.speed * vis.bobSpeed;
+        moved = true;
       }
     }
 
-    const bob = Math.sin(unit.stepPhase || 0) * (vis.bounce || .03);
-    unit.mesh.position.set(unit.pos.x, unit.pos.y + .8 + bob, unit.pos.z);
+    unit.mesh.position.set(unit.pos.x, unit.pos.y + .8, unit.pos.z);
+    const ringOpacity = unit.hostile ? .38 : .28;
+    unit.mesh.userData.ring.material.opacity = ringOpacity + unit.attackFlash * .4 + unit.hitFlash * .3;
+    unit.mesh.userData.ring.material.color.setHex(unit.hostile ? 0xff7c63 : 0xffd66b);
     const body = unit.mesh.userData.body;
-    if (body) body.rotation.z = (vis.lean || .1) * Math.sin(unit.stepPhase || 0) + unit.attackFlash * (unit.hostile ? -0.85 : 0.85);
-    const silhouette = unit.mesh.userData.silhouette;
-    if (silhouette) silhouette.rotation.y = Math.sin((unit.stepPhase || 0) * .5) * .08;
-    if (unit.mesh.userData.gltf) {
-      unit.mesh.userData.gltf.rotation.z = unit.attackFlash * (unit.hostile ? -.22 : .22);
-      unit.mesh.userData.gltf.position.y = (UNIT_MODEL_MAP[unit.type]?.y ?? -0.42) + Math.abs(bob * .45);
+    if (body) {
+      body.position.y = Math.sin(unit.stepPhase) * vis.bounce;
+      body.rotation.z = Math.sin(unit.stepPhase * .5) * vis.lean;
+      body.material.opacity = .001 + unit.attackFlash * .02 + unit.hitFlash * .04;
     }
-    unit.mesh.scale.setScalar(1 + unit.hitFlash * .12);
 
-    if (unit.hp <= 0) {
-      if (unit.hostile) {
-        state.resources.prestige += 1.5;
-        state.resources.threat = Math.max(0, state.resources.threat - .6);
-        state.stats.raidsDefeated += .25;
+    if (unit.mesh.userData.mixer) {
+      unit.mesh.userData.mixer.update(dt);
+      if (!unit.attackFlash && !unit.hitFlash) {
+        setAnimationState(unit.mesh, moved ? 'walk' : 'idle');
       }
-      spawnCollapse(sceneCtx, unit.pos, unit.hostile ? 0xaa4a38 : 0xcfa95d);
-      sceneCtx.groups.units.remove(unit.mesh);
-      state.units.splice(i, 1);
-      if (!unit.hostile) state.stats.armyUnits = state.units.filter((u) => !u.hostile && u.type !== 'worker').length;
     }
+
+    if (unit.hitFlash > 0) {
+      if (unit.mesh.userData.gltf) unit.mesh.userData.gltf.scale.multiplyScalar(1 + unit.hitFlash * .01);
+      if (unit.mesh.userData.animActions?.hit) playOneShot(unit.mesh, 'hit');
+    }
+
+    if (unit.hp <= 0) cleanupDeadUnit(sceneCtx, state, unit, i);
   }
 }
 
-export function autoSpawnWorkers(sceneCtx, state, dt) {
-  state.workerSpawnTimer -= dt;
-  if (state.workerSpawnTimer > 0) return;
-  state.workerSpawnTimer = 22;
-  if (state.resources.workers >= Math.min(state.resources.population, 20)) return;
+export function autoSpawnWorkers(sceneCtx, state, dt, notify) {
+  state.workerSpawnTimer += dt;
+  const cap = state.resources.populationCap || 18;
+  if (state.workerSpawnTimer < state.workerSpawnDelay) return;
+  state.workerSpawnTimer = 0;
+  if (state.resources.population >= cap) return;
   const capital = getCapital(state);
   if (!capital) return;
   const tile = state.mapIndex.get(capital.tileId);
-  spawnUnit(sceneCtx, state, 'worker', tile.pos, null);
+  if (!tile) return;
+  state.resources.population += 1;
   state.resources.workers += 1;
+  spawnUnit(sceneCtx, state, 'worker', new THREE.Vector3(tile.pos.x + Math.random(), tile.height, tile.pos.z + Math.random()), null);
+  notify('В столицу прибыл новый рабочий');
 }

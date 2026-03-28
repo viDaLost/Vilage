@@ -1,9 +1,8 @@
 import * as THREE from 'three';
 import { BUILDINGS } from '../config.js';
-import { loadBuildingModel, makeFallbackMesh } from '../core/assets.js';
+import { loadBuildingModel, makeFallbackMesh, loadDecorModel } from '../core/assets.js';
 import { getNeighbors, isTileInsideTerritory } from './world.js';
 import { clearDecorOnTile } from './renderWorld.js';
-import { dist2, clamp } from '../utils/helpers.js';
 
 let buildingId = 1;
 
@@ -19,11 +18,11 @@ function selectionRing() {
 
 function scaleForBuilding(type, level) {
   const base = {
-    capital: 1.52, farm: .82, lumber: .82, mine: .85, market: .84,
-    granary: .82, temple: .9, barracks: .9, wall: .82, tower: .85,
-    academy: .88, harbor: .9, wonder: 1.04
+    capital: 1.95, farm: .9, lumber: .9, mine: .92, market: .94,
+    granary: .9, temple: 1.0, barracks: 1.02, wall: .88, tower: .95,
+    academy: .96, harbor: .98, wonder: 1.12
   };
-  return (base[type] || .85) * (1 + (level - 1) * .07);
+  return (base[type] || .9) * (1 + (level - 1) * .08);
 }
 
 export function getUpgradeCost(type, nextLevel) {
@@ -133,11 +132,53 @@ export function destroyBuilding(sceneCtx, state, building) {
   const tile = state.mapIndex.get(building.tileId);
   if (tile) tile.buildingId = null;
   sceneCtx.groups.buildings.remove(building.mesh);
+  if (building.extraMeshes?.length) building.extraMeshes.forEach((m) => sceneCtx.groups.decor.remove(m));
   state.buildings = state.buildings.filter((b) => b.id !== building.id);
   const refund = Math.round((BUILDINGS[building.type].cost?.wood || 0) * .25);
   state.resources.wood += refund;
   state.resources.stone += Math.round((BUILDINGS[building.type].cost?.stone || 0) * .2);
   return true;
+}
+
+async function spawnFarmBeds(sceneCtx, tile, entity) {
+  const beds = [];
+  try {
+    for (let i = 0; i < 3; i++) {
+      const model = await loadDecorModel('crops.glb');
+      const angle = (i / 3) * Math.PI * 2 + Math.PI / 6;
+      const radius = 0.7;
+      model.scale.setScalar(0.42);
+      model.rotation.y = angle + Math.PI / 2;
+      model.position.set(tile.pos.x + Math.cos(angle) * radius, tile.height + 0.03, tile.pos.z + Math.sin(angle) * radius);
+      sceneCtx.groups.decor.add(model);
+      beds.push(model);
+    }
+  } catch {}
+  entity.extraMeshes = beds;
+}
+
+export async function createGhostBuildingMesh(type) {
+  const cfg = BUILDINGS[type];
+  if (!cfg?.model) return null;
+  try {
+    const model = await loadBuildingModel(cfg.model);
+    model.scale.setScalar(scaleForBuilding(type, 1));
+    model.traverse((obj) => {
+      if (obj.isMesh && obj.material) {
+        const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+        mats.forEach((m) => {
+          m = m.clone();
+          m.transparent = true;
+          m.opacity = 0.38;
+          m.depthWrite = false;
+          obj.material = m;
+        });
+      }
+    });
+    return model;
+  } catch {
+    return null;
+  }
 }
 
 export async function finishConstruction(sceneCtx, state, job) {
@@ -149,9 +190,10 @@ export async function finishConstruction(sceneCtx, state, job) {
     building.maxHp = Math.round(cfg.health * (1 + (building.level - 1) * .25));
     building.hp = building.maxHp;
     building.upgrading = false;
-    const model = building.mesh.children[0];
+    const model = building.modelRoot || building.mesh.children[0];
     if (model) model.scale.setScalar(scaleForBuilding(building.type, building.level));
     if (building.glow) building.glow.intensity = .9 + building.level * .1;
+    if (cfg.territory) state.territoryRadius += cfg.territory * 0.32;
     return building;
   }
 
@@ -175,6 +217,7 @@ export async function finishConstruction(sceneCtx, state, job) {
     glow: null,
     hitFlash: 0,
     upgrading: false,
+    extraMeshes: []
   };
 
   let model;
@@ -186,14 +229,15 @@ export async function finishConstruction(sceneCtx, state, job) {
   model.scale.setScalar(scaleForBuilding(job.type, 1));
   model.position.y = tile.height + .08;
   entity.mesh.add(model);
+  entity.modelRoot = model;
 
   const ring = selectionRing();
   ring.position.y = tile.height + .05;
   entity.mesh.add(ring);
   entity.selection = ring;
 
-  const light = new THREE.PointLight(0xffcc88, job.type === 'capital' ? 1.1 : 0.78, job.type === 'capital' ? 8 : 6);
-  light.position.set(0, tile.height + 1.8, 0);
+  const light = new THREE.PointLight(0xffcc88, job.type === 'capital' ? 1.2 : 0.82, job.type === 'capital' ? 9 : 6);
+  light.position.set(0, tile.height + 2.2, 0);
   entity.mesh.add(light);
   entity.glow = light;
   entity.mesh.userData.tileId = tile.id;
@@ -205,6 +249,7 @@ export async function finishConstruction(sceneCtx, state, job) {
 
   if (cfg.territory) state.territoryRadius += cfg.territory;
   if (job.type === 'wonder') state.stats.wonderBuilt = 1;
+  if (job.type === 'farm') await spawnFarmBeds(sceneCtx, tile, entity);
   return entity;
 }
 
@@ -230,9 +275,7 @@ export function computeBuildingYield(state, building) {
     if (tile.type === 'river') out.food += .25;
     if (state.techs.has('irrigation') && ['river', 'fertile'].includes(tile.type)) out.food += .22;
   }
-  if (building.type === 'lumber') {
-    out.wood += neighbors.filter((n) => n.type === 'forest').length * .09;
-  }
+  if (building.type === 'lumber') out.wood += neighbors.filter((n) => n.type === 'forest').length * .09;
   if (building.type === 'mine') {
     if (tile.type === 'rock') out.stone += .18;
     if (tile.type === 'hill') out.gold += .06;
@@ -241,15 +284,9 @@ export function computeBuildingYield(state, building) {
     out.gold += neighbors.filter((n) => n.buildingId).length * .04;
     if (state.techs.has('caravans')) out.gold += state.resources.roads * .008;
   }
-  if (building.type === 'temple') {
-    if (tile.type === 'sacred') out.prestige += .12;
-  }
-  if (building.type === 'academy' && state.techs.has('archives')) {
-    out.knowledge += .08;
-  }
-  if (building.type === 'tower' && state.techs.has('discipline')) {
-    out.defense += .25;
-  }
+  if (building.type === 'temple' && tile.type === 'sacred') out.prestige += .12;
+  if (building.type === 'academy' && state.techs.has('archives')) out.knowledge += .08;
+  if (building.type === 'tower' && state.techs.has('discipline')) out.defense += .25;
   if (building.type === 'capital' && state.era > 0) {
     out.gold += .14 * state.era;
     out.populationCap += 2 * state.era;
