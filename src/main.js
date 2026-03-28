@@ -3,7 +3,7 @@ import { GAME_CONFIG, BUILDINGS, UNITS } from './config.js';
 import { createInitialState } from './state.js';
 import { createScene } from './core/scene.js';
 import { generateWorld, getNeighbors, isTileInsideTerritory } from './systems/world.js';
-import { renderTiles, renderRoads, clearDecorOnTile } from './systems/renderWorld.js';
+import { renderTiles, renderRoads, clearDecorOnTile, populateDecorModels, updateTerritoryOverlay } from './systems/renderWorld.js';
 import { setupHud, updateHud } from './ui/hud.js';
 import { drawMinimap } from './ui/minimap.js';
 import { notify } from './ui/notifications.js';
@@ -11,7 +11,7 @@ import { openBuildMenu, openQuickBuildMenu, openResearchMenu, openTrainMenu, bin
 import { setupModal, openModal, closeModal } from './ui/modal.js';
 import { updateSelection } from './ui/selection.js';
 import { setupInput } from './core/input.js';
-import { canPlaceBuilding, hasCost, payCost, placeConstruction, finishConstruction, getBuildingById, getBuildingOnTile, getCapital, startUpgrade, repairBuilding, destroyBuilding } from './systems/buildings.js';
+import { canPlaceBuilding, hasCost, payCost, placeConstruction, finishConstruction, getBuildingById, getBuildingOnTile, getCapital, startUpgrade, repairBuilding, destroyBuilding, createGhostBuildingMesh } from './systems/buildings.js';
 import { applyRealTimeEconomy, updateConstruction, collectFinishedConstruction, updateEra, updateObjectives, updateResearch } from './systems/economy.js';
 import { autoSpawnWorkers, queueTraining, updateTraining, updateUnits } from './systems/units.js';
 import { updateDefense, updateProjectiles, spawnCollapse } from './systems/combat.js';
@@ -48,6 +48,9 @@ async function bootstrap() {
   createRoadNetworkFromCapital();
   spawnEnemyCamps();
   renderRoads(sceneCtx, state);
+
+  setLoading(58, 'Расстановка декоративных моделей…');
+  await populateDecorModels(sceneCtx, state);
 
   setLoading(66, 'Подготовка интерфейса…');
   updateHud(state);
@@ -324,8 +327,9 @@ function handleAction(action) {
   if (action === 'build-menu') {
     openBuildMenu(state, (type) => {
       state.selectedBuildType = type;
+      closeDrawer();
       showGhost(type);
-      notify(`Режим строительства: ${BUILDINGS[type].name}`);
+      notify(`Выбери место для: ${BUILDINGS[type].name}`);
     });
   }
   if (action === 'train-menu') {
@@ -376,12 +380,20 @@ function showRules() {
   );
 }
 
-function showGhost(type) {
+async function showGhost(type) {
   removeGhost();
-  const geo = new THREE.CylinderGeometry(1.28, 1.28, .16, 6);
-  const mat = new THREE.MeshBasicMaterial({ color: 0xffd66b, transparent: true, opacity: .28 });
-  ghostMesh = new THREE.Mesh(geo, mat);
-  ghostMesh.rotation.y = Math.PI / 6;
+  const ghostGroup = new THREE.Group();
+  const fallback = new THREE.Mesh(
+    new THREE.CylinderGeometry(1.28, 1.28, .16, 6),
+    new THREE.MeshBasicMaterial({ color: 0xffd66b, transparent: true, opacity: .25 })
+  );
+  fallback.rotation.y = Math.PI / 6;
+  ghostGroup.add(fallback);
+  try {
+    const model = await createGhostBuildingMesh(type);
+    if (model) ghostGroup.add(model);
+  } catch {}
+  ghostMesh = ghostGroup;
   sceneCtx.groups.ghosts.add(ghostMesh);
   sceneCtx.renderer.domElement.addEventListener('pointermove', pointerGhostMove);
 }
@@ -397,7 +409,13 @@ function pointerGhostMove(e) {
   const tile = state.map.find((t) => t.mesh === hits[0].object);
   if (!tile) return;
   ghostMesh.position.set(tile.pos.x, tile.height + .16, tile.pos.z);
-  ghostMesh.material.color.set(canPlaceBuilding(state, state.selectedBuildType, tile) ? 0xb3ff84 : 0xff7b6f);
+  const ok = canPlaceBuilding(state, state.selectedBuildType, tile);
+  ghostMesh.traverse((obj) => {
+    if (obj.isMesh && obj.material) {
+      const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+      mats.forEach((m) => { if (m.color) m.color.setHex(ok ? 0xb3ff84 : 0xff7b6f); });
+    }
+  });
 }
 
 function removeGhost() {
@@ -419,7 +437,10 @@ async function processFinishedConstruction() {
       connectRoadsForTile(tile);
     }
   }
-  if (done.length) refreshConstructionOverlays();
+  if (done.length) {
+    refreshConstructionOverlays();
+    updateTerritoryOverlay(sceneCtx, state);
+  }
   renderRoads(sceneCtx, state);
 }
 
@@ -433,13 +454,14 @@ function updateDayNightVisual(dt) {
   const ang = t * Math.PI * 2;
   sceneCtx.sun.position.set(Math.cos(ang) * 40, Math.max(8, Math.sin(ang) * 34), Math.sin(ang) * 20 - 8);
   const lightMul = { clear: 1, rain: .92, mist: .8, dust: .84 }[state.weather];
-  sceneCtx.sun.intensity = clamp(Math.sin(ang) * 1.08 + .88, .42, 1.66) * lightMul;
-  sceneCtx.hemi.intensity = .52 + sceneCtx.sun.intensity * .40;
-  sceneCtx.ambient.intensity = .28 + sceneCtx.sun.intensity * .08;
+  sceneCtx.sun.intensity = clamp(Math.sin(ang) * 1.15 + 1.28, 1.0, 2.6) * lightMul;
+  sceneCtx.hemi.intensity = 1.05 + sceneCtx.sun.intensity * .4;
+  sceneCtx.ambient.intensity = .68 + sceneCtx.sun.intensity * .12;
+  if (sceneCtx.fill) sceneCtx.fill.intensity = .56 + sceneCtx.sun.intensity * .16;
   sceneCtx.stars.visible = sceneCtx.sun.position.y < 12;
-  sceneCtx.sky.material.uniforms.topColor.value.setHex(sceneCtx.sun.position.y > 14 ? 0x9ad5ff : 0x243260);
-  sceneCtx.sky.material.uniforms.bottomColor.value.setHex(sceneCtx.sun.position.y > 14 ? 0xffd29a : 0x6a3d1f);
-  sceneCtx.scene.fog.color.setHex(sceneCtx.sun.position.y > 14 ? 0x7a5a3d : 0x171425);
+  sceneCtx.sky.material.uniforms.topColor.value.setHex(sceneCtx.sun.position.y > 14 ? 0xaedfff : 0x33437d);
+  sceneCtx.sky.material.uniforms.bottomColor.value.setHex(sceneCtx.sun.position.y > 14 ? 0xffdeb1 : 0x7c4d2b);
+  sceneCtx.scene.fog.color.setHex(sceneCtx.sun.position.y > 14 ? 0x8e745f : 0x2a2740);
   sceneCtx.cloudLayer.children.forEach((cloud, i) => {
     cloud.rotation.y += dt * cloud.userData.drift * .1;
     cloud.position.x += Math.sin((state.worldTime * .03) + i) * dt * .1;
@@ -516,6 +538,46 @@ function updateConstructionOverlays() {
   });
 }
 
+
+function ensureHealthEl(id) {
+  const wrap = $('#health-overlays');
+  let el = wrap.querySelector(`[data-health-id="${id}"]`);
+  if (el) return el;
+  el = document.createElement('div');
+  el.className = 'health-bar';
+  el.dataset.healthId = id;
+  el.innerHTML = '<div class="health-fill"></div>';
+  wrap.appendChild(el);
+  return el;
+}
+
+function updateHealthOverlays() {
+  const wrap = $('#health-overlays');
+  if (!wrap) return;
+  const active = new Set();
+  const items = [
+    ...state.buildings.map((b) => ({ id: `b-${b.id}`, hp: b.hp, maxHp: b.maxHp, pos: state.mapIndex.get(b.tileId)?.pos?.clone().setY(state.mapIndex.get(b.tileId)?.height + 2.2) })),
+    ...state.units.map((u) => ({ id: `u-${u.id}`, hp: u.hp, maxHp: u.maxHp, pos: u.pos.clone().setY(u.pos.y + 2.4) }))
+  ];
+  items.forEach((item) => {
+    if (!item.pos || item.hp >= item.maxHp || item.maxHp <= 0) return;
+    active.add(item.id);
+    const el = ensureHealthEl(item.id);
+    const fill = el.firstElementChild;
+    const ratio = Math.max(0, Math.min(1, item.hp / item.maxHp));
+    item.pos.project(sceneCtx.camera);
+    const x = (item.pos.x * .5 + .5) * innerWidth;
+    const y = (item.pos.y * -.5 + .5) * innerHeight;
+    const offscreen = item.pos.z > 1 || x < -80 || x > innerWidth + 80 || y < -80 || y > innerHeight + 80;
+    el.style.display = offscreen ? 'none' : 'block';
+    el.style.transform = `translate(${x}px, ${y}px)`;
+    fill.style.width = `${ratio * 100}%`;
+  });
+  wrap.querySelectorAll('.health-bar').forEach((el) => {
+    if (!active.has(el.dataset.healthId)) el.remove();
+  });
+}
+
 function spawnConstructionDust(dt) {
   constructionDustTimer += dt;
   if (constructionDustTimer < 0.18) return;
@@ -552,6 +614,12 @@ async function stepSimulation(dt) {
   updateProjectiles(sceneCtx, state, dt);
   updateEnemyWaves(sceneCtx, state, dt, notify);
   updateObjectives(state);
+  if (state.resources.population >= state.territoryGrowthAt) {
+    state.territoryGrowthAt += 6;
+    state.territoryRadius += 0.9;
+    updateTerritoryOverlay(sceneCtx, state);
+    notify('Границы державы расширились');
+  }
   spawnConstructionDust(dt);
 
   state.workerSpawnTimer -= dt;
@@ -582,6 +650,7 @@ async function animate(now = performance.now()) {
   }
 
   updateConstructionOverlays();
+  updateHealthOverlays();
   updateDayNightVisual(rawDt * Math.max(state.timeScale, .3));
   sceneCtx.controls.update();
   sceneCtx.composer.render();

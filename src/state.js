@@ -46,6 +46,7 @@ export function createInitialState() {
     enemyCamps: [],
     roads: [],
     territoryRadius: 13.5,
+    territoryGrowthAt: 18,
     notifications: [],
     capitalId: null,
     stats: {

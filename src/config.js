@@ -1,7 +1,7 @@
 export const GAME_CONFIG = {
-  saveKey: 'empire-east-3d-rts-save-v7',
+  saveKey: 'empire-east-3d-rts-save-v9',
   mapRadius: 13,
-  hexSize: 1.68,
+  hexSize: 1.72,
   axialScaleX: 0.985,
   axialScaleZ: 0.98,
   simBaseSpeed: 1,
@@ -11,17 +11,17 @@ export const GAME_CONFIG = {
   workerSpawnEvery: 22,
   enemyWaveEvery: 48,
   enemyCampCount: 5,
-  decorModelDensity: 0.38,
+  decorModelDensity: 0.46,
   maxPopulationSoft: 60,
   doubleTapMs: 340,
-  decorPerTileSoftCap: 3,
+  decorPerTileSoftCap: 4,
   terrain: {
-    waterLevel: -1.3,
-    riverBand: 0.085,
-    hillLevel: 0.85,
-    rockLevel: 1.4,
-    fertileBand: 0.42,
-    forestBand: -0.3
+    waterLevel: -1.1,
+    riverBand: 0.08,
+    hillLevel: 0.8,
+    rockLevel: 1.25,
+    fertileBand: 0.38,
+    forestBand: -0.28
   }
 };
 
@@ -73,7 +73,7 @@ export const BUILDINGS = {
     yields: { gold: .55, prestige: .05, knowledge: .02, populationCap: 10 },
     train: ['worker'],
     health: 320,
-    territory: 2.6
+    territory: 3.2
   },
   farm: {
     name: 'Ферма', icon: '🌾', model: 'farm.glb', category: 'economy',
@@ -155,6 +155,7 @@ export const BUILDINGS = {
     yields: { defense: .65 },
     maxLevel: 2,
     health: 220,
+    territory: 1.35,
     terrain: ['grass', 'hill', 'rock', 'fertile']
   },
   academy: {
@@ -234,13 +235,13 @@ export const DECOR_MODELS = {
 };
 
 export const UNIT_MODEL_MAP = {
-  worker: { file: 'monk.gltf', scale: 0.74, y: -0.42, rotY: Math.PI },
-  militia: { file: 'warrior.gltf', scale: 0.84, y: -0.42, rotY: Math.PI },
-  swordsman: { file: 'rogue.gltf', scale: 0.78, y: -0.42, rotY: Math.PI },
-  raider: { file: 'rogue.gltf', scale: 0.82, y: -0.42, rotY: Math.PI },
-  raiderArcher: { file: 'ranger.gltf', scale: 0.86, y: -0.42, rotY: Math.PI },
-  brute: { file: 'warrior.gltf', scale: 1.04, y: -0.42, rotY: Math.PI },
-  wolfRider: { file: 'wizard.gltf', scale: 0.94, y: -0.42, rotY: Math.PI },
+  worker: { file: 'monk.gltf', scale: 0.78, y: -0.92, rotY: Math.PI },
+  militia: { file: 'warrior.gltf', scale: 0.82, y: -0.98, rotY: Math.PI },
+  swordsman: { file: 'rogue.gltf', scale: 0.9, y: -1.0, rotY: Math.PI },
+  raider: { file: 'rogue.gltf', scale: 0.92, y: -1.0, rotY: Math.PI },
+  raiderArcher: { file: 'ranger.gltf', scale: 0.88, y: -0.98, rotY: Math.PI },
+  brute: { file: 'warrior.gltf', scale: 1.0, y: -1.05, rotY: Math.PI },
+  wolfRider: { file: 'wizard.gltf', scale: 0.96, y: -1.02, rotY: Math.PI },
 };
 
 export const UNIT_VISUALS = {
