@@ -15,6 +15,10 @@ export function createInitialState() {
     selected: null,
     selectedBuildType: null,
     dragging: false,
+    lastTapTileId: null,
+    lastTapAt: 0,
+    lastQuickBuildType: 'farm',
+    gameEnded: false,
     resources: {
       gold: 140,
       food: 110,
@@ -47,7 +51,8 @@ export function createInitialState() {
     stats: {
       raidsDefeated: 0,
       wonderBuilt: 0,
-      armyUnits: 0
+      armyUnits: 0,
+      campsDestroyed: 0
     }
   };
 }

@@ -1,15 +1,18 @@
 export const GAME_CONFIG = {
-  saveKey: 'empire-east-3d-rts-save-v1',
-  mapRadius: 12,
-  hexSize: 1.75,
+  saveKey: 'empire-east-3d-rts-save-v3',
+  mapRadius: 13,
+  hexSize: 1.74,
+  axialScaleX: 0.93,
+  axialScaleZ: 0.925,
   simBaseSpeed: 1,
   dayDuration: 180,
   seasonDuration: 540,
   autosaveEvery: 12,
-  workerSpawnEvery: 24,
-  enemyWaveEvery: 55,
-  enemyCampCount: 4,
+  workerSpawnEvery: 22,
+  enemyWaveEvery: 48,
+  enemyCampCount: 5,
   maxPopulationSoft: 60,
+  doubleTapMs: 340,
   terrain: {
     waterLevel: -1.3,
     riverBand: 0.085,
@@ -49,21 +52,20 @@ export const WEATHER_TYPES = {
 };
 
 export const TERRAIN_TYPES = {
-  water: { name: 'Вода', buildable: false, color: 0x6ba8d7 },
-  river: { name: 'Речной берег', buildable: true, color: 0x7db4e4 },
-  fertile: { name: 'Плодородная земля', buildable: true, color: 0x93c65d },
-  grass: { name: 'Равнина', buildable: true, color: 0x709d4b },
-  forest: { name: 'Лес', buildable: true, color: 0x2e6d29 },
-  hill: { name: 'Холм', buildable: true, color: 0x8e7954 },
-  rock: { name: 'Скала', buildable: true, color: 0x8a8a88 },
-  sacred: { name: 'Священная земля', buildable: true, color: 0xc8ad63 }
+  water: { name: 'Вода', buildable: false, color: 0x6ea3d3, tint: 0x7eb3de },
+  river: { name: 'Речной берег', buildable: true, color: 0x7fb2dd, tint: 0xa4d0ef },
+  fertile: { name: 'Плодородная земля', buildable: true, color: 0x93c65d, tint: 0xb2de79 },
+  grass: { name: 'Равнина', buildable: true, color: 0x6f9c4a, tint: 0x86b65f },
+  forest: { name: 'Лес', buildable: true, color: 0x275d25, tint: 0x357737 },
+  hill: { name: 'Холм', buildable: true, color: 0x8d7852, tint: 0xb49767 },
+  rock: { name: 'Скала', buildable: true, color: 0x7f807d, tint: 0xa5a6a2 },
+  sacred: { name: 'Священная земля', buildable: true, color: 0xc8ad63, tint: 0xe1cd85 }
 };
 
 export const BUILDINGS = {
   capital: {
     name: 'Столица', icon: '🏰',
-    model: 'town-center.glb',
-    category: 'core',
+    model: 'town-center.glb', category: 'core',
     maxLevel: 5,
     baseBuildTime: 0,
     yields: { gold: .55, prestige: .05, knowledge: .02, populationCap: 10 },
@@ -196,7 +198,7 @@ export const UNITS = {
   },
   swordsman: {
     name: 'Мечник', icon: '⚔️', trainTime: 12,
-    cost: { gold: 24, food: 8, iron: 0 }, speed: 2.1, hp: 72, attack: 7, range: 0.85,
+    cost: { gold: 24, food: 8 }, speed: 2.1, hp: 72, attack: 7, range: 0.85,
     minEra: 1
   },
   raider: {
@@ -218,5 +220,5 @@ export const OBJECTIVES = [
   { id: 'food', title: 'Сильные амбары', target: 220, metric: 'food', reward: { population: 2, stability: 8 } },
   { id: 'roads', title: 'Связать державу', target: 10, metric: 'roads', reward: { gold: 40, prestige: 5 } },
   { id: 'army', title: 'Собрать войско', target: 10, metric: 'armyUnits', reward: { prestige: 6, stability: 4 } },
-  { id: 'wonder', title: 'Создать чудо света', target: 1, metric: 'wonderBuilt', reward: { prestige: 26, stability: 10 } }
+  { id: 'wonder', title: 'Создать чудо', target: 1, metric: 'wonderBuilt', reward: { prestige: 18, stability: 14 } }
 ];

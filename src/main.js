@@ -1,25 +1,24 @@
 import * as THREE from 'three';
-import { GAME_CONFIG, BUILDINGS, ERA_DATA } from './config.js';
+import { GAME_CONFIG, BUILDINGS } from './config.js';
 import { createInitialState } from './state.js';
 import { createScene } from './core/scene.js';
-import { generateWorld, getTile, getNeighbors, isTileInsideTerritory } from './systems/world.js';
+import { generateWorld, getNeighbors, isTileInsideTerritory } from './systems/world.js';
 import { renderTiles, renderRoads } from './systems/renderWorld.js';
 import { setupHud, updateHud } from './ui/hud.js';
 import { drawMinimap } from './ui/minimap.js';
 import { notify } from './ui/notifications.js';
-import { openBuildMenu, openResearchMenu, openTrainMenu, bindDrawerClose, closeDrawer } from './ui/drawer.js';
+import { openBuildMenu, openQuickBuildMenu, openResearchMenu, openTrainMenu, bindDrawerClose, closeDrawer } from './ui/drawer.js';
 import { setupModal, openModal, closeModal } from './ui/modal.js';
 import { updateSelection } from './ui/selection.js';
 import { setupInput } from './core/input.js';
-import { createHexShape } from './systems/world.js';
-import { canPlaceBuilding, hasCost, payCost, placeConstruction, finishConstruction, getBuildingById, getBuildingOnTile } from './systems/buildings.js';
+import { canPlaceBuilding, hasCost, payCost, placeConstruction, finishConstruction, getBuildingById, getBuildingOnTile, getCapital } from './systems/buildings.js';
 import { applyRealTimeEconomy, updateConstruction, collectFinishedConstruction, updateEra, updateObjectives, updateResearch } from './systems/economy.js';
 import { autoSpawnWorkers, queueTraining, updateTraining, updateUnits, spawnUnit } from './systems/units.js';
 import { updateDefense, updateProjectiles } from './systems/combat.js';
 import { maybeChangeWeather, updateEnemyWaves, updateEnvironmentState } from './systems/events.js';
-import { saveGame, loadGame, clearSave } from './systems/persistence.js';
+import { saveGame, clearSave } from './systems/persistence.js';
 import { $, $$ } from './ui/dom.js';
-import { clamp, dist2, fmt } from './utils/helpers.js';
+import { clamp } from './utils/helpers.js';
 
 const state = createInitialState();
 const sceneCtx = createScene(document.getElementById('game'));
@@ -57,6 +56,7 @@ async function bootstrap() {
   setLoading(82, 'Подключение ввода…');
   setupInput(sceneCtx, state, {
     onTile: onTileSelected,
+    onTileDouble: onTileDoubleSelected,
     onUnit: onUnitSelected,
   });
 
@@ -114,15 +114,25 @@ function spawnEnemyCamps() {
   farTiles.sort(() => Math.random() - .5);
   state.enemyCamps = farTiles.slice(0, GAME_CONFIG.enemyCampCount).map((tile, i) => {
     const mesh = new THREE.Group();
-    const base = new THREE.Mesh(new THREE.CylinderGeometry(.55, .7, .35, 6), new THREE.MeshStandardMaterial({ color: 0x6b2417, roughness: 1 }));
+    const matDark = new THREE.MeshStandardMaterial({ color: 0x5a2118, roughness: 1 });
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(.76, .94, .42, 6), matDark);
     base.position.y = tile.height + .2;
     base.castShadow = true;
-    const fire = new THREE.Mesh(new THREE.ConeGeometry(.26, .6, 6), new THREE.MeshStandardMaterial({ color: 0xff9345, emissive: 0xff7836, emissiveIntensity: .7 }));
-    fire.position.y = tile.height + .85;
-    mesh.add(base, fire);
+    const tent = new THREE.Mesh(new THREE.ConeGeometry(.54, 1.02, 4), new THREE.MeshStandardMaterial({ color: 0x3e1713, roughness: 1 }));
+    tent.position.y = tile.height + .82;
+    const fire = new THREE.Mesh(new THREE.OctahedronGeometry(.19), new THREE.MeshStandardMaterial({ color: 0xff9345, emissive: 0xff7836, emissiveIntensity: 1.1 }));
+    fire.position.y = tile.height + .48;
+    const skull = new THREE.Mesh(new THREE.SphereGeometry(.12, 8, 8), new THREE.MeshStandardMaterial({ color: 0xc9c2b1, roughness: 1 }));
+    skull.position.set(.24, tile.height + .58, .14);
+    const bannerPole = new THREE.Mesh(new THREE.CylinderGeometry(.025, .025, 1.3, 5), new THREE.MeshStandardMaterial({ color: 0x6d5330, roughness: 1 }));
+    bannerPole.position.set(-.26, tile.height + .74, -.16);
+    const banner = new THREE.Mesh(new THREE.PlaneGeometry(.32, .42), new THREE.MeshStandardMaterial({ color: 0x7a1711, roughness: 1, side: THREE.DoubleSide }));
+    banner.position.set(-.02, tile.height + 1.0, -.16);
+    banner.rotation.y = .15;
+    mesh.add(base, tent, fire, skull, bannerPole, banner);
     mesh.position.set(tile.pos.x, 0, tile.pos.z);
     sceneCtx.groups.enemyCamps.add(mesh);
-    return { id: `camp-${i}`, tileId: tile.id, pos: tile.pos.clone(), mesh };
+    return { id: `camp-${i}`, tileId: tile.id, hp: 120, pos: tile.pos.clone(), mesh };
   });
 }
 
@@ -134,8 +144,8 @@ function addRoad(aId, bId) {
   return true;
 }
 
-async function tryPlaceBuilding(tile) {
-  const type = state.selectedBuildType;
+async function tryPlaceBuilding(tile, forcedType = null) {
+  const type = forcedType || state.selectedBuildType;
   if (!type) return;
   if (!canPlaceBuilding(state, type, tile)) {
     notify('Эту постройку нельзя разместить на выбранной клетке');
@@ -148,12 +158,14 @@ async function tryPlaceBuilding(tile) {
   }
   payCost(state.resources, cfg.cost);
   const job = placeConstruction(state, type, tile);
+  state.lastQuickBuildType = type;
   notify(`Начато строительство: ${cfg.name}`);
   closeDrawer();
   state.selectedBuildType = null;
   removeGhost();
   updateHud(state);
   updateSelection(state);
+  return job;
 }
 
 function onTileSelected(tile) {
@@ -164,6 +176,30 @@ function onTileSelected(tile) {
   } else {
     updateSelection(state);
   }
+}
+
+function onTileDoubleSelected(tile) {
+  state.selected = { kind: 'tile', ref: tile };
+  highlightSelection();
+  const building = getBuildingOnTile(state, tile);
+  if (building) {
+    updateSelection(state);
+    if (['capital', 'barracks'].includes(building.type)) {
+      openTrainMenu(state, () => {});
+      bindTrainButtons();
+    }
+    return;
+  }
+  if (!isTileInsideTerritory(state, tile) || tile.type === 'water') {
+    notify('Эта сота пока не подходит для строительства');
+    return;
+  }
+  if (state.lastQuickBuildType && canPlaceBuilding(state, state.lastQuickBuildType, tile)) {
+    tryPlaceBuilding(tile, state.lastQuickBuildType);
+    return;
+  }
+  openQuickBuildMenu(state, tile, (type) => tryPlaceBuilding(tile, type));
+  updateSelection(state);
 }
 
 function onUnitSelected(unit) {
@@ -232,21 +268,24 @@ function handleAction(action) {
   }
 }
 
-async function bindTrainButtons() {
-  document.querySelectorAll('[data-unit-type]').forEach(async (btn) => {
-    btn.onclick = async () => {
-      const { UNITS } = await import('./config.js');
+function bindTrainButtons() {
+  document.querySelectorAll('[data-unit-type]').forEach((btn) => {
+    btn.onclick = () => {
       const building = getBuildingById(state, btn.dataset.trainBuilding);
-      const unit = UNITS[btn.dataset.unitType];
-      if (!building || !unit) return;
-      const ok = Object.entries(unit.cost).every(([k, v]) => (state.resources[k] || 0) >= v);
-      if (!ok) return notify('Недостаточно ресурсов на обучение');
-      Object.entries(unit.cost).forEach(([k, v]) => state.resources[k] -= v);
-      queueTraining(building, btn.dataset.unitType);
-      notify(`В очереди: ${unit.name}`);
-      updateHud(state);
-      openTrainMenu(state, () => {});
-      bindTrainButtons();
+      const unitType = btn.dataset.unitType;
+      const unitCost = Object.entries(BUILDINGS[building.type].train || []).length ? null : null;
+      if (!building || !unitType) return;
+      import('./config.js').then(({ UNITS }) => {
+        const unit = UNITS[unitType];
+        const ok = Object.entries(unit.cost).every(([k, v]) => (state.resources[k] || 0) >= v);
+        if (!ok) return notify('Недостаточно ресурсов на обучение');
+        Object.entries(unit.cost).forEach(([k, v]) => state.resources[k] -= v);
+        queueTraining(building, unitType);
+        notify(`В очереди: ${unit.name}`);
+        updateHud(state);
+        openTrainMenu(state, () => {});
+        bindTrainButtons();
+      });
     };
   });
 }
@@ -254,13 +293,13 @@ async function bindTrainButtons() {
 function showRules() {
   openModal(
     'Летопись правителя',
-    'Это уже real-time RTS для браузера',
+    'Веб-RTS с живым временем и двойным тапом по сотам',
     `
-      <p><strong>Главная идея:</strong> ресурсы, строительство, обучение войск, враги, день и погода обновляются непрерывно. Кнопка «Ход» больше не нужна.</p>
-      <p><strong>Как играть:</strong> выбери «Строить», затем коснись клетки внутри своих владений. Постройки строятся по времени. В казармах и столице обучаются юниты. Башни и гарнизоны автоматически отбивают врагов.</p>
-      <p><strong>Механики:</strong> фермы любят реки и плодородную землю, шахты любят скалы и холмы, рынки усиливаются дорогами, храмы и академии двигают престиж и знание.</p>
+      <p><strong>Главная идея:</strong> ресурсы, строительство, обучение войск, враги, день и погода обновляются непрерывно. Кнопка хода заменена скоростью симуляции.</p>
+      <p><strong>Управление:</strong> один тап выбирает соту, юнита или здание. <strong>Двойной тап по пустой соте</strong> мгновенно ставит последнюю выбранную постройку, а если она не подходит — открывает быстрое меню.</p>
+      <p><strong>Смысл партии:</strong> расширяй границы, удерживай еду и порядок, развивай логистику дорог, обучай войска и переживай всё более сложные набеги. Цель — провести державу от основания к золотому веку.</p>
+      <p><strong>Механики:</strong> фермы любят реки и плодородную землю, шахты — скалы и холмы, рынки усиливаются дорогами, храмы и академии двигают престиж и знание.</p>
       <p><strong>Веб-подход:</strong> проект работает без сборщика, на обычном статическом хостинге вроде GitHub Pages. Сохранение идёт в localStorage.</p>
-      <p><strong>Ускорение времени:</strong> справа снизу можно ставить паузу, x1, x2 или x4.</p>
     `,
     [
       { label: 'Начать', primary: true, onClick: closeModal },
@@ -271,8 +310,8 @@ function showRules() {
 
 function showGhost(type) {
   removeGhost();
-  const geo = new THREE.CylinderGeometry(1.3, 1.3, .18, 6);
-  const mat = new THREE.MeshBasicMaterial({ color: 0xffd66b, transparent: true, opacity: .35 });
+  const geo = new THREE.CylinderGeometry(1.36, 1.36, .18, 6);
+  const mat = new THREE.MeshBasicMaterial({ color: 0xffd66b, transparent: true, opacity: .32 });
   ghostMesh = new THREE.Mesh(geo, mat);
   ghostMesh.rotation.y = Math.PI / 6;
   sceneCtx.groups.ghosts.add(ghostMesh);
@@ -329,6 +368,12 @@ function updateDayNightVisual(dt) {
   sceneCtx.stars.visible = sceneCtx.sun.position.y < 12;
   sceneCtx.sky.material.uniforms.topColor.value.setHex(sceneCtx.sun.position.y > 14 ? 0x84c4ff : 0x182a56);
   sceneCtx.sky.material.uniforms.bottomColor.value.setHex(sceneCtx.sun.position.y > 14 ? 0xf5d8a3 : 0x522d16);
+  sceneCtx.scene.fog.color.setHex(sceneCtx.sun.position.y > 14 ? 0x77583a : 0x101018);
+  sceneCtx.cloudLayer.children.forEach((cloud, i) => {
+    cloud.rotation.y += dt * cloud.userData.drift * .1;
+    cloud.position.x += Math.sin((state.worldTime * .03) + i) * dt * .1;
+    cloud.position.z += Math.cos((state.worldTime * .02) + i) * dt * .08;
+  });
 }
 
 function maybeAutoSave(dt) {
@@ -336,6 +381,24 @@ function maybeAutoSave(dt) {
   if (state.autosaveTimer < GAME_CONFIG.autosaveEvery) return;
   state.autosaveTimer = 0;
   saveGame(state);
+}
+
+function checkStateMilestones() {
+  if (state.gameEnded) return;
+  const capital = getCapital(state);
+  if (!capital || state.resources.stability <= 0) {
+    state.gameEnded = true;
+    state.paused = true;
+    state.timeScale = 0;
+    setSpeedButton(0);
+    openModal('Держава пала', 'Власть рассыпалась', '<p>Нужно удерживать порядок, пищу и защиту. Попробуй начать снова и раньше строить амбары, храмы и башни.</p>', [{ label: 'Понятно', primary: true, onClick: closeModal }]);
+    return;
+  }
+  const allObjectives = state.objectives.every((o) => o.done);
+  if (allObjectives && state.era >= 2 && state.resources.stability >= 65) {
+    state.gameEnded = true;
+    openModal('Золотой век', 'Империя добилась величия', '<p>Ты выполнил стратегические цели, пережил набеги и вывел державу в зрелую эпоху. Можно продолжать строить или начать новую партию.</p>', [{ label: 'Продолжить', primary: true, onClick: closeModal }]);
+  }
 }
 
 async function stepSimulation(dt) {
@@ -363,6 +426,7 @@ async function stepSimulation(dt) {
     maybeChangeWeather(state);
     notify(`Погода изменилась: ${state.weather}`);
   }
+  checkStateMilestones();
   maybeAutoSave(dt);
 }
 
