@@ -61,7 +61,7 @@ export function applyRealTimeEconomy(state, dt) {
   if (state.resources.food < 12) state.resources.threat = clamp(state.resources.threat + dt * .18, 0, 100);
   if (state.resources.stability > 82) state.resources.prestige += dt * .035;
   if (freeWorkers < Math.max(1, Math.ceil(staffedDemand * 0.12))) state.resources.stability = clamp(state.resources.stability - dt * 0.06, 0, 100);
-  state.resources.threat = clamp(state.resources.threat + dt * (.05 + state.era * .012) - Math.min(0.05, income.defense * .0042), 0, 100);
+  state.resources.threat = clamp(state.resources.threat + dt * (.038 + state.era * .01) - Math.min(0.05, income.defense * .0042), 0, 100);
 }
 
 export function updateConstruction(state, dt) {

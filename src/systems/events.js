@@ -26,11 +26,12 @@ export function campFactionLabel(camp) {
 export function updateEnemyWaves(sceneCtx, state, dt, notify) {
   state.enemyWaveTimer -= dt;
   if (state.enemyWaveTimer > 0) return;
-  state.enemyWaveTimer = 50 + Math.random() * 18;
+  const baseDelay = state.era === 0 ? 95 : state.era === 1 ? 78 : 64;
+  state.enemyWaveTimer = baseDelay + Math.random() * 22;
   if (!state.enemyCamps.length) return;
   const camp = rand(state.enemyCamps);
   const faction = FACTIONS[camp.faction] || FACTIONS.clans;
-  const count = 1 + Math.floor(state.era + Math.random() * 2.4);
+  const count = state.era === 0 ? (Math.random() > 0.7 ? 2 : 1) : 1 + Math.floor(state.era + Math.random() * 2.1);
   const spawned = [];
   for (let i = 0; i < count; i++) {
     const p = camp.pos.clone().add(new THREE.Vector3((Math.random() - .5) * 2.8, 0, (Math.random() - .5) * 2.8));

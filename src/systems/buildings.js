@@ -18,9 +18,9 @@ function selectionRing() {
 
 function scaleForBuilding(type, level) {
   const base = {
-    capital: 2.38, farm: 1.02, lumber: 1.0, mine: 1.04, market: 1.08,
-    granary: 1.02, temple: 1.12, barracks: 1.12, wall: .96, tower: 1.08,
-    academy: 1.06, harbor: 1.08, wonder: 1.2
+    capital: 2.75, farm: 1.14, lumber: 1.12, mine: 1.18, market: 1.18,
+    granary: 1.16, temple: 1.25, barracks: 1.24, wall: 1.04, tower: 1.18,
+    academy: 1.18, harbor: 1.2, wonder: 1.3
   };
   return (base[type] || 1.0) * (1 + (level - 1) * .1);
 }
@@ -246,6 +246,7 @@ export async function finishConstruction(sceneCtx, state, job) {
     if (model) model.scale.setScalar(scaleForBuilding(building.type, building.level));
     if (building.glow) building.glow.intensity = .9 + building.level * .1;
     if (cfg.territory) state.territoryRadius += cfg.territory * 0.32;
+    updateBuildingBadge(building);
     return building;
   }
 
@@ -377,6 +378,12 @@ export function computeBuildingYield(state, building) {
       if (key !== 'populationCap' && key !== 'defense') out[key] *= workerStatus.ratio;
     });
   }
+  if (['farm','lumber','mine'].includes(building.type)) {
+    if (out.food) out.food = 0;
+    if (out.wood) out.wood = 0;
+    if (out.stone) out.stone = 0;
+    if (out.gold) out.gold = building.type === 'mine' ? 0 : out.gold;
+  }
   return out;
 }
 
@@ -388,6 +395,16 @@ export function buildingCenter(state, building) {
   const tile = state.mapIndex.get(building.tileId);
   const y = tile.surfaceY ?? tile.height;
   return tile.pos.clone().setY(y + .6);
+}
+
+
+export function getBuildingFootprintRadius(building) {
+  const byType = {
+    capital: 2.25, farm: 1.15, lumber: 1.1, mine: 1.2, market: 1.15,
+    granary: 1.15, temple: 1.25, barracks: 1.28, wall: 0.9, tower: 1.05,
+    academy: 1.18, harbor: 1.24, wonder: 1.4
+  };
+  return (byType[building.type] || 1.0) * (1 + Math.max(0, building.level - 1) * 0.08);
 }
 
 export function getBuildingStatus(state, building) {
