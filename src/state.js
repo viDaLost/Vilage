@@ -8,7 +8,7 @@ export function createInitialState() {
     seasonTime: 0,
     worldTime: 0,
     autosaveTimer: 0,
-    enemyWaveTimer: 16,
+    enemyWaveTimer: 65,
     workerSpawnDelay: 22,
     workerSpawnTimer: 0,
     weather: 'clear',
@@ -20,6 +20,8 @@ export function createInitialState() {
     lastTapTileId: null,
     lastTapAt: 0,
     lastQuickBuildType: 'farm',
+    selectionMode: 'normal',
+    selectedUnits: [],
     gameEnded: false,
     resources: {
       gold: 140,
@@ -34,7 +36,8 @@ export function createInitialState() {
       stability: 76,
       knowledge: 0,
       threat: 8,
-      roads: 0
+      roads: 0,
+      defenseBuildings: 0
     },
     techs: new Set(),
     techProgress: null,

@@ -14,7 +14,7 @@ import { createInitialState } from './state.js';
 import { createScene } from './core/scene.js';
 import { generateWorld, getNeighbors, isTileInsideTerritory } from './systems/world.js';
 import { getTerrainY } from './systems/terrain.js';
-import { renderTiles, renderRoads, clearDecorOnTile, populateDecorModels, updateTerritoryOverlay } from './systems/renderWorld.js';
+import { renderTiles, renderRoads, clearDecorOnTile, populateDecorModels, updateTerritoryOverlay, clearBuildHints, showBuildHints } from './systems/renderWorld.js';
 import { setupHud, updateHud } from './ui/hud.js';
 import { drawMinimap } from './ui/minimap.js';
 import { notify } from './ui/notifications.js';
@@ -22,7 +22,7 @@ import { openBuildMenu, openQuickBuildMenu, openResearchMenu, openTrainMenu, bin
 import { setupModal, openModal, closeModal } from './ui/modal.js';
 import { updateSelection } from './ui/selection.js';
 import { setupInput } from './core/input.js';
-import { canPlaceBuilding, hasCost, payCost, placeConstruction, finishConstruction, getBuildingById, getBuildingOnTile, getCapital, startUpgrade, repairBuilding, destroyBuilding, createGhostBuildingMesh } from './systems/buildings.js';
+import { canPlaceBuilding, hasCost, payCost, placeConstruction, finishConstruction, getBuildingById, getBuildingOnTile, getCapital, startUpgrade, repairBuilding, destroyBuilding, createGhostBuildingMesh, getBuildingWorkerDemand } from './systems/buildings.js';
 import { applyRealTimeEconomy, updateConstruction, collectFinishedConstruction, updateEra, updateObjectives, updateResearch } from './systems/economy.js';
 import { autoSpawnWorkers, queueTraining, updateTraining, updateUnits, spawnUnit } from './systems/units.js';
 import { updateDefense, updateProjectiles, spawnCollapse } from './systems/combat.js';
@@ -94,7 +94,7 @@ async function bootstrap() {
     onTile: onTileSelected,
     onTileDouble: onTileDoubleSelected,
     onUnit: onUnitSelected,
-    onEmpty: () => { state.selected = null; updateSelection(state); }
+    onEmpty: () => { state.selected = null; state.selectedUnits = []; clearBuildHints(sceneCtx, state); updateSelection(state); }
   });
 
   setLoading(100, 'Готово');
@@ -213,7 +213,7 @@ function addRoad(aId, bId) {
   const key = [aId, bId].sort().join('|');
   if (state.roads.some((r) => r.key === key)) return false;
   state.roads.push({ key, a: aId, b: bId });
-  state.resources.roads = state.roads.length;
+  state.resources.roads = 0;
   return true;
 }
 
@@ -286,8 +286,43 @@ function onTileSelected(tile) {
   const building = getBuildingOnTile(state, tile);
   if (state.placementMode?.type === 'rally') {
     const source = getBuildingById(state, state.placementMode.buildingId);
-    if (source) { source.rallyTileId = tile.id; notify(`Точка сбора назначена для ${BUILDINGS[source.type].name}`); }
+    if (source) {
+      source.rallyTileId = tile.id;
+      source.rallyPoint = tile.pos.clone();
+      notify(`Точка сбора назначена для ${BUILDINGS[source.type].name}`);
+    }
     state.placementMode = null;
+    return;
+  }
+  if (state.selectedUnits?.length) {
+    state.selectedUnits.forEach((u) => {
+      if (u.hostile) return;
+      u.commandTarget = tile.pos.clone();
+      u.patrolCenter = tile.pos.clone();
+    });
+    notify(state.selectedUnits.length > 1 ? 'Отряд получил приказ и будет держать эту точку' : 'Юнит отправлен в указанную точку');
+    updateSelection(state);
+    return;
+  }
+  if (state.selected?.kind === 'unit' && !state.selected.ref.hostile) {
+    const unit = state.selected.ref;
+    const buildingHere = getBuildingOnTile(state, tile);
+    if (unit.type === 'worker' && buildingHere && getBuildingWorkerDemand(buildingHere) > 0) {
+      const demand = getBuildingWorkerDemand(buildingHere);
+      const assigned = state.units.filter((u) => u.type === 'worker' && u.assignedBuildingId === buildingHere.id).length;
+      if (assigned >= demand) { notify('В этом здании уже заполнен лимит рабочих'); return; }
+      unit.assignedBuildingId = buildingHere.id;
+      unit.manualAssignment = true;
+      unit.commandTarget = null;
+      unit.workerPhase = 'toWork';
+      notify(`Рабочий назначен: ${BUILDINGS[buildingHere.type].name}`);
+      updateSelection(state);
+      return;
+    }
+    unit.commandTarget = tile.pos.clone();
+    unit.patrolCenter = tile.pos.clone();
+    notify(unit.type === 'worker' ? 'Рабочий получил приказ двигаться' : 'Юнит получил приказ и будет патрулировать здесь');
+    updateSelection(state);
     return;
   }
   if (state.selectedBuildType) {
@@ -323,18 +358,31 @@ function onTileDoubleSelected(tile) {
 
 function onUnitSelected(unit) {
   state.selected = { kind: 'unit', ref: unit };
+  state.selectedUnits = unit.hostile ? [] : [unit];
   highlightSelection();
   updateSelection(state);
 }
 
+function selectAllWarriors() {
+  state.selectedUnits = state.units.filter((u) => !u.hostile && u.type !== 'worker');
+  if (!state.selectedUnits.length) return notify('У тебя пока нет боевых юнитов');
+  state.selected = { kind: 'unit', ref: state.selectedUnits[0] };
+  updateSelection(state);
+  notify(`Выбрано воинов: ${state.selectedUnits.length}. Коснись точки на карте для приказа.`);
+}
+
+
 function highlightSelection() {
   state.buildings.forEach((b) => { if (b.selection) b.selection.material.opacity = 0; });
+  state.units.forEach((u) => { if (u.mesh?.userData?.ring) u.mesh.userData.ring.material.opacity = u.hostile ? .38 : .28; });
   const sel = state.selected;
   if (sel?.kind === 'tile') {
     const building = getBuildingOnTile(state, sel.ref);
     if (building?.selection) building.selection.material.opacity = .65;
   }
+  (state.selectedUnits || []).forEach((u) => { if (u.mesh?.userData?.ring) u.mesh.userData.ring.material.opacity = .6; });
 }
+
 
 function hookButtons() {
   $$('.speed-btn').forEach((btn) => {
@@ -374,6 +422,7 @@ function handleAction(action) {
       state.selectedBuildType = type;
       closeDrawer();
       showGhost(type);
+      showBuildHints(sceneCtx, state, type, canPlaceBuilding);
       notify(`Выбери место для: ${BUILDINGS[type].name}`);
     });
   }
@@ -386,6 +435,9 @@ function handleAction(action) {
   }
   if (action === 'rules') {
     showRules();
+  }
+  if (action === 'select-warriors') {
+    selectAllWarriors();
   }
 }
 
@@ -464,6 +516,7 @@ function pointerGhostMove(e) {
 }
 
 function removeGhost() {
+  clearBuildHints(sceneCtx, state);
   if (!ghostMesh) return;
   sceneCtx.groups.ghosts.remove(ghostMesh);
   ghostMesh.geometry.dispose?.();
@@ -489,9 +542,34 @@ async function processFinishedConstruction() {
   renderRoads(sceneCtx, state);
 }
 
-function connectRoadsForTile(tile) {
-  const neighbors = getNeighbors(state, tile).filter((n) => n.type !== 'water' && (n.buildingId || isTileInsideTerritory(state, n)));
-  neighbors.forEach((n) => addRoad(tile.id, n.id));
+function connectRoadsForTile(tile) { return; }
+
+
+
+function updateRallyFlags() {
+  state.buildings.forEach((b) => {
+    if (!b.rallyTileId) {
+      if (b.rallyMarker) {
+        sceneCtx.groups.effects.remove(b.rallyMarker);
+        b.rallyMarker = null;
+      }
+      return;
+    }
+    const tile = state.mapIndex.get(b.rallyTileId);
+    if (!tile) return;
+    if (!b.rallyMarker) {
+      const marker = new THREE.Group();
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 1.25, 6), new THREE.MeshStandardMaterial({ color: 0x6a4923, roughness: 1 }));
+      pole.position.y = 0.62;
+      const flag = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.28, 0.04), new THREE.MeshStandardMaterial({ color: 0xc54028, emissive: 0x5a1f12, emissiveIntensity: 0.2 }));
+      flag.position.set(0.28, 1.0, 0);
+      marker.add(pole, flag);
+      sceneCtx.groups.effects.add(marker);
+      b.rallyMarker = marker;
+    }
+    b.rallyMarker.position.set(tile.pos.x, getTerrainY(tile.pos.x, tile.pos.z) + 0.05, tile.pos.z);
+    b.rallyMarker.rotation.y += 0.01;
+  });
 }
 
 function updateDayNightVisual(dt) {
@@ -695,6 +773,7 @@ async function animate(now = performance.now()) {
 
   updateConstructionOverlays();
   updateHealthOverlays();
+  updateRallyFlags();
   updateDayNightVisual(rawDt * Math.max(state.timeScale, .3));
   sceneCtx.controls.update();
   sceneCtx.composer.render();
