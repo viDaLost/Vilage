@@ -108,8 +108,6 @@ function decorChoices(tile) {
       if (r(3) > .78) list.push('watchTower');
       break;
     case 'river':
-      if (r(1) > .66) list.push('tree');
-      if (r(2) > .72) list.push('shack');
       break;
     case 'sacred':
       if (r(1) > .5) list.push('tree');
@@ -123,6 +121,7 @@ export function renderTiles(sceneCtx, state) {
   groups.tiles.clear();
   groups.decor.clear();
   groups.overlays.clear();
+  groups.backdrop.clear();
   addDistantMountains(groups.backdrop);
 
   const ringGeo = new THREE.RingGeometry(state.territoryRadius - .15, state.territoryRadius + .1, 128);
@@ -158,7 +157,7 @@ function tileNearWater(state, tile) {
 }
 
 async function spawnDecorModel(sceneCtx, state, tile, key, slot = 0) {
-  if (!key || tile.buildingId || tile.type === 'water') return;
+  if (!key || tile.buildingId || tile.type === 'water' || tile.type === 'river') return;
   if (['tree','oak','pine','pineAlt','pineRound','house','hut','shack'].includes(key) && tileNearWater(state, tile)) return;
   const cfg = DECOR_MODELS[key];
   if (!cfg) return;
@@ -169,7 +168,7 @@ async function spawnDecorModel(sceneCtx, state, tile, key, slot = 0) {
     const seed = Math.sin(tile.q * 53.2 + tile.r * 71.9 + slot * 19.3) * 43758.5453;
     const rand = seed - Math.floor(seed);
     const angle = rand * Math.PI * 2;
-    const radius = slot === 0 ? 0.28 : 0.55 + slot * 0.2;
+    const radius = slot === 0 ? 0.22 : 0.46 + slot * 0.18;
     const x = tile.pos.x + Math.cos(angle) * radius;
     const z = tile.pos.z + Math.sin(angle) * radius;
     const point = getTerrainPoint(x, z);

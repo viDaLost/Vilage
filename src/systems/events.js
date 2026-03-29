@@ -26,7 +26,7 @@ export function campFactionLabel(camp) {
 export function updateEnemyWaves(sceneCtx, state, dt, notify) {
   state.enemyWaveTimer -= dt;
   if (state.enemyWaveTimer > 0) return;
-  const baseDelay = state.era === 0 ? 95 : state.era === 1 ? 78 : 64;
+  const baseDelay = state.era === 0 ? 175 : state.era === 1 ? 124 : 96;
   state.enemyWaveTimer = baseDelay + Math.random() * 22;
   if (!state.enemyCamps.length) return;
   const camp = rand(state.enemyCamps);
