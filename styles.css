@@ -170,12 +170,11 @@ body { touch-action: manipulation; }
   left: 50%;
   bottom: calc(10px + var(--safe-bottom));
   transform: translateX(-50%);
-  width: min(96vw, 860px);
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 10px;
+  width: min(96vw, 760px);
+  display: block;
   padding: 10px;
 }
+
 #speed-controls {
   display: flex;
   gap: 6px;
@@ -187,6 +186,7 @@ body { touch-action: manipulation; }
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
 }
+
 .action-btn, .speed-btn, .primary-btn, .secondary-btn, .card-btn {
   pointer-events: auto;
   border: 1px solid rgba(255,214,107,.3);
@@ -527,3 +527,7 @@ body { touch-action: manipulation; }
   .notice { font-size: 13px; padding: 8px 12px; max-width: 92vw; }
   #context-drawer { width: min(94vw, 94vw); right: 3vw; top: auto; bottom: calc(120px + var(--safe-bottom)); max-height: 48vh; }
 }
+
+#unit-action-menu{position:absolute;z-index:30;min-width:220px;padding:10px;display:none;pointer-events:auto;}
+#unit-action-menu .card-btn{width:100%;margin-top:8px;}
+#unit-action-menu.visible{display:block;}
