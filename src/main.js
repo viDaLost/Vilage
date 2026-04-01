@@ -13,7 +13,7 @@ import { GAME_CONFIG, BUILDINGS, UNITS } from './config.js';
 import { createInitialState } from './state.js';
 import { createScene } from './core/scene.js';
 import { generateWorld, getNeighbors, isTileInsideTerritory } from './systems/world.js';
-import { getTerrainY } from './systems/terrain.js';
+import { getTerrainY, updateTerrainVisuals } from './systems/terrain.js';
 import { renderTiles, renderRoads, clearDecorOnTile, populateDecorModels, updateTerritoryOverlay } from './systems/renderWorld.js';
 import { setupHud, updateHud } from './ui/hud.js';
 import { notify } from './ui/notifications.js';
@@ -77,6 +77,8 @@ async function bootstrap() {
 
   setLoading(48, 'Размещение столицы…');
   await spawnCapital();
+  createRoadNetworkFromCapital();
+  renderRoads(sceneCtx, state);
   await spawnEnemyCamps();
 
   setLoading(58, 'Подготовка интерфейса…');
@@ -164,7 +166,15 @@ async function spawnCapital() {
   state.resources.stone = Math.max(state.resources.stone, 70);
 }
 
-function createRoadNetworkFromCapital() {}
+function createRoadNetworkFromCapital() {
+  const capital = getCapital(state);
+  if (!capital) return;
+  const center = state.mapIndex.get(capital.tileId);
+  if (!center) return;
+  getNeighbors(state, center)
+    .filter((tile) => tile?.buildingId)
+    .forEach((tile) => addRoad(center.id, tile.id));
+}
 
 async function makeCampMesh(tile, faction) {
   const mesh = new THREE.Group();
@@ -199,7 +209,31 @@ async function spawnEnemyCamps() {
   }));
 }
 
-function addRoad(aId, bId) { return false; }
+function addRoad(aId, bId) {
+  if (!aId || !bId || aId === bId) return false;
+  const key = [aId, bId].sort().join('|');
+  if (!state.roads) state.roads = [];
+  if (state.roads.some((r) => [r.a, r.b].sort().join('|') === key)) return false;
+  const a = state.mapIndex.get(aId);
+  const b = state.mapIndex.get(bId);
+  if (!a || !b) return false;
+  a.roadLinks?.add?.(bId);
+  b.roadLinks?.add?.(aId);
+  state.roads.push({ a: aId, b: bId });
+  state.resources.roads = state.roads.length;
+  return true;
+}
+
+function removeRoadsForTile(tileId) {
+  if (!tileId || !state.roads?.length) return false;
+  const before = state.roads.length;
+  state.roads = state.roads.filter((road) => road.a !== tileId && road.b !== tileId);
+  state.map.forEach((tile) => tile.roadLinks?.delete?.(tileId));
+  const tile = state.mapIndex.get(tileId);
+  tile?.roadLinks?.clear?.();
+  state.resources.roads = state.roads.length;
+  return state.roads.length !== before;
+}
 
 async function tryPlaceBuilding(tile, forcedType = null) {
   const type = forcedType || state.selectedBuildType;
@@ -254,6 +288,7 @@ function openTappedBuildingMenu(tile, building) {
     },
     demolish: () => {
       destroyBuilding(sceneCtx, state, building);
+      removeRoadsForTile(tile.id);
       spawnCollapse(sceneCtx, tile.pos.clone().add(new THREE.Vector3(0, tile.height + .5, 0)));
       notify(`Постройка снесена: ${BUILDINGS[building.type].name}`);
       closeDrawer();
@@ -539,19 +574,36 @@ function removeGhost() {
 
 async function processFinishedConstruction() {
   const done = collectFinishedConstruction(state);
+  let roadsChanged = false;
   for (const job of done) {
     const entity = await finishConstruction(sceneCtx, state, job);
     if (entity) {
+      const tile = state.mapIndex.get(entity.tileId);
+      if (tile) roadsChanged = connectRoadsForTile(tile) || roadsChanged;
       notify(job.mode === 'upgrade' ? `Улучшено: ${BUILDINGS[entity.type].name} ур. ${entity.level}` : `Построено: ${BUILDINGS[job.type].name}`);
     }
   }
   if (done.length) {
     refreshConstructionOverlays();
     updateTerritoryOverlay(sceneCtx, state);
+    if (roadsChanged) renderRoads(sceneCtx, state);
   }
 }
 
-function connectRoadsForTile(tile) {}
+function connectRoadsForTile(tile) {
+  if (!tile?.buildingId) return false;
+  let changed = false;
+  const neighbors = getNeighbors(state, tile).filter((n) => n?.buildingId);
+  const capital = getCapital(state);
+  if (capital) {
+    const capitalTile = state.mapIndex.get(capital.tileId);
+    if (capitalTile && capitalTile.id !== tile.id && Math.hypot(tile.pos.x - capitalTile.pos.x, tile.pos.z - capitalTile.pos.z) <= GAME_CONFIG.hexSize * 5.8) {
+      changed = addRoad(tile.id, capitalTile.id) || changed;
+    }
+  }
+  neighbors.forEach((n) => { changed = addRoad(tile.id, n.id) || changed; });
+  return changed;
+}
 
 function updateDayNightVisual(dt) {
   const t = (state.dayTime % GAME_CONFIG.dayDuration) / GAME_CONFIG.dayDuration;
@@ -754,6 +806,7 @@ async function animate(now = performance.now()) {
   updateConstructionOverlays();
   updateHealthOverlays();
   updateDayNightVisual(rawDt * Math.max(state.timeScale, .3));
+  updateTerrainVisuals(state, now);
   sceneCtx.controls.update();
   sceneCtx.composer.render();
 }
