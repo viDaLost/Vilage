@@ -11,15 +11,15 @@ let waterMesh = null;
 let terrainMaterial = null;
 let waterMaterial = null;
 
-function makeCanvas(size = 256) {
+function makeCanvas(size = 512) {
   const canvas = document.createElement('canvas');
   canvas.width = size;
   canvas.height = size;
   return canvas;
 }
 
-function makeRepeatingTexture(drawFn, repeatX = 18, repeatY = 18) {
-  const canvas = makeCanvas(256);
+function makeRepeatingTexture(drawFn, repeatX = 12, repeatY = 12) {
+  const canvas = makeCanvas(512);
   const ctx = canvas.getContext('2d');
   drawFn(ctx, canvas.width, canvas.height);
   const tex = new THREE.CanvasTexture(canvas);
@@ -30,81 +30,80 @@ function makeRepeatingTexture(drawFn, repeatX = 18, repeatY = 18) {
   return tex;
 }
 
+// Более натуральная текстура травы (эффект нарисованных пятен)
 function makeGrassTexture() {
   return makeRepeatingTexture((ctx, w, h) => {
-    const g = ctx.createLinearGradient(0, 0, 0, h);
-    g.addColorStop(0, '#86a95a');
-    g.addColorStop(0.5, '#6c8f43');
-    g.addColorStop(1, '#587332');
-    ctx.fillStyle = g;
+    ctx.fillStyle = '#658a3e';
     ctx.fillRect(0, 0, w, h);
 
-    for (let i = 0; i < 3500; i++) {
+    // Рисуем мягкие пятна
+    for (let i = 0; i < 400; i++) {
       const x = Math.random() * w;
       const y = Math.random() * h;
-      const len = 2 + Math.random() * 8;
-      const sway = -1 + Math.random() * 2;
-      const alpha = 0.04 + Math.random() * 0.07;
-      ctx.strokeStyle = `rgba(${50 + Math.floor(Math.random() * 40)}, ${95 + Math.floor(Math.random() * 90)}, ${30 + Math.floor(Math.random() * 30)}, ${alpha})`;
-      ctx.lineWidth = 0.7 + Math.random() * 1.1;
-      ctx.beginPath();
-      ctx.moveTo(x, y + len * 0.2);
-      ctx.quadraticCurveTo(x + sway * 1.4, y - len * 0.4, x + sway, y - len);
-      ctx.stroke();
-    }
-
-    for (let i = 0; i < 500; i++) {
-      const x = Math.random() * w;
-      const y = Math.random() * h;
-      const r = 1 + Math.random() * 2.5;
-      ctx.fillStyle = `rgba(255, 235, 170, ${0.015 + Math.random() * 0.03})`;
+      const r = 10 + Math.random() * 30;
+      const isLight = Math.random() > 0.5;
+      
+      const grad = ctx.createRadialGradient(x, y, 0, x, y, r);
+      grad.addColorStop(0, isLight ? 'rgba(125, 168, 79, 0.15)' : 'rgba(78, 107, 47, 0.15)');
+      grad.addColorStop(1, 'rgba(0,0,0,0)');
+      
+      ctx.fillStyle = grad;
       ctx.beginPath();
       ctx.arc(x, y, r, 0, Math.PI * 2);
       ctx.fill();
     }
-  }, 14, 14);
+
+    // Немного мелких деталей "цветов" и "камней"
+    for (let i = 0; i < 150; i++) {
+      ctx.fillStyle = Math.random() > 0.8 ? 'rgba(255,235,170,0.3)' : 'rgba(40,50,30,0.2)';
+      ctx.beginPath();
+      ctx.arc(Math.random() * w, Math.random() * h, 1 + Math.random() * 2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }, 10, 10);
 }
 
 function makeGrassNormalTexture() {
   return makeRepeatingTexture((ctx, w, h) => {
     ctx.fillStyle = 'rgb(128,128,255)';
     ctx.fillRect(0, 0, w, h);
-    for (let i = 0; i < 2500; i++) {
+    // Мягкий бамп-маппинг
+    for (let i = 0; i < 500; i++) {
       const x = Math.random() * w;
       const y = Math.random() * h;
-      const c = 116 + Math.floor(Math.random() * 24);
-      ctx.fillStyle = `rgb(${c},${c},255)`;
-      ctx.fillRect(x, y, 1 + Math.random() * 2, 3 + Math.random() * 4);
-    }
-  }, 14, 14);
-}
-
-function makeWaterTexture() {
-  return makeRepeatingTexture((ctx, w, h) => {
-    const g = ctx.createLinearGradient(0, 0, 0, h);
-    g.addColorStop(0, '#78c9ee');
-    g.addColorStop(0.45, '#4196c5');
-    g.addColorStop(1, '#2d6f9d');
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, w, h);
-
-    for (let i = 0; i < 1500; i++) {
-      const x = Math.random() * w;
-      const y = Math.random() * h;
-      const rw = 8 + Math.random() * 28;
-      const rh = 1 + Math.random() * 2.6;
-      ctx.fillStyle = `rgba(255,255,255,${0.02 + Math.random() * 0.035})`;
+      const r = 5 + Math.random() * 15;
+      const c = 128 + (Math.random() - 0.5) * 40;
+      const grad = ctx.createRadialGradient(x, y, 0, x, y, r);
+      grad.addColorStop(0, `rgba(${c},${c},255, 0.3)`);
+      grad.addColorStop(1, 'rgba(128,128,255,0)');
+      ctx.fillStyle = grad;
       ctx.beginPath();
-      ctx.ellipse(x, y, rw, rh, Math.random() * Math.PI, 0, Math.PI * 2);
+      ctx.arc(x, y, r, 0, Math.PI * 2);
       ctx.fill();
     }
+  }, 10, 10);
+}
 
-    for (let i = 0; i < 700; i++) {
+// Более глубокая и красивая вода
+function makeWaterTexture() {
+  return makeRepeatingTexture((ctx, w, h) => {
+    ctx.fillStyle = '#2d7a9d';
+    ctx.fillRect(0, 0, w, h);
+
+    // Световые блики (каустика)
+    for (let i = 0; i < 300; i++) {
       const x = Math.random() * w;
       const y = Math.random() * h;
-      ctx.fillStyle = `rgba(210,245,255,${0.02 + Math.random() * 0.03})`;
+      const rw = 15 + Math.random() * 40;
+      const rh = 3 + Math.random() * 8;
+      
+      const grad = ctx.createRadialGradient(x, y, 0, x, y, rw);
+      grad.addColorStop(0, 'rgba(130, 210, 240, 0.2)');
+      grad.addColorStop(1, 'rgba(0,0,0,0)');
+      
+      ctx.fillStyle = grad;
       ctx.beginPath();
-      ctx.arc(x, y, 1 + Math.random() * 2.4, 0, Math.PI * 2);
+      ctx.ellipse(x, y, rw, rh, Math.random() * 0.2 - 0.1, 0, Math.PI * 2);
       ctx.fill();
     }
   }, 6, 6);
@@ -114,15 +113,13 @@ function makeWaterNormalTexture() {
   return makeRepeatingTexture((ctx, w, h) => {
     ctx.fillStyle = 'rgb(128,128,255)';
     ctx.fillRect(0, 0, w, h);
-    for (let y = 0; y < h; y += 8) {
-      ctx.strokeStyle = `rgba(${120 + Math.floor(Math.random() * 20)}, ${120 + Math.floor(Math.random() * 20)}, 255, 0.35)`;
-      ctx.lineWidth = 2 + Math.random() * 1.5;
-      ctx.beginPath();
-      for (let x = -10; x <= w + 10; x += 12) {
-        const yy = y + Math.sin((x + y) * 0.07) * 2.2 + (Math.random() - 0.5) * 1.4;
-        if (x === -10) ctx.moveTo(x, yy); else ctx.lineTo(x, yy);
-      }
-      ctx.stroke();
+    for (let i = 0; i < 200; i++) {
+        const x = Math.random() * w;
+        const y = Math.random() * h;
+        ctx.fillStyle = `rgba(140, 140, 255, 0.4)`;
+        ctx.beginPath();
+        ctx.ellipse(x, y, 20 + Math.random() * 20, 5 + Math.random() * 10, 0, 0, Math.PI * 2);
+        ctx.fill();
     }
   }, 6, 6);
 }
@@ -131,29 +128,27 @@ function ensureTerrainMaterials() {
   if (!terrainMaterial) {
     terrainMaterial = new THREE.MeshPhysicalMaterial({
       vertexColors: true,
-      roughness: 0.98,
-      metalness: 0.0,
-      clearcoat: 0.0,
+      roughness: 0.85,
+      metalness: 0.05,
       map: makeGrassTexture(),
       normalMap: makeGrassNormalTexture(),
-      normalScale: new THREE.Vector2(0.45, 0.45),
-      envMapIntensity: 0.25
+      normalScale: new THREE.Vector2(0.6, 0.6),
+      envMapIntensity: 0.3
     });
   }
   if (!waterMaterial) {
     waterMaterial = new THREE.MeshPhysicalMaterial({
-      color: 0x7bc3ea,
+      color: 0x4fb4e3,
       transparent: true,
-      opacity: 0.86,
-      roughness: 0.12,
-      metalness: 0.04,
-      clearcoat: 0.65,
-      transmission: 0.0,
-      reflectivity: 0.35,
+      opacity: 0.9,
+      roughness: 0.1,
+      metalness: 0.1,
+      clearcoat: 0.8,
+      reflectivity: 0.5,
       map: makeWaterTexture(),
       normalMap: makeWaterNormalTexture(),
-      normalScale: new THREE.Vector2(0.55, 0.55),
-      envMapIntensity: 0.55,
+      normalScale: new THREE.Vector2(0.7, 0.7),
+      envMapIntensity: 0.8,
       depthWrite: false
     });
   }
@@ -186,14 +181,20 @@ function dominantTileAt(state, x, z) {
 }
 
 function macroTerrain(x, z, tile) {
+  if (!tile) return 0;
+  
+  // Если на клетке есть здание, делаем землю под ним ровной!
+  if (tile.buildingId) {
+    return 0; // Нулевой модификатор поверх базовой высоты тайла
+  }
+
   const gentle = fbm(x, z, 4, 0.55, 0.014) * 0.28;
   const detail = fbm(x + 40, z - 10, 3, 0.45, 0.05) * 0.05;
-  const ridge = Math.max(0, fbm(x - 120, z + 90, 3, 0.52, 0.018));
-  if (!tile) return gentle + detail;
-  if (tile.type === 'river') return -0.18 + detail * 0.3;
-  if (tile.type === 'fertile' || tile.type === 'grass' || tile.type === 'forest' || tile.type === 'sacred') return gentle + detail;
-  if (tile.type === 'hill') return 0.34 + ridge * 0.42 + detail;
-  if (tile.type === 'rock') return 0.72 + ridge * 0.7 + detail * 0.7;
+  
+  if (tile.type === 'river') return -0.1 + detail * 0.1;
+  if (tile.type === 'rock') return 0.5 + detail * 0.8;
+  if (tile.type === 'hill') return 0.2 + detail * 0.4;
+  
   return gentle + detail;
 }
 
@@ -207,19 +208,25 @@ function colorFor(type, h, x, z, steepness) {
   const baseColorHex = TERRAIN_TYPES[type]?.color || 0x6e8e45;
   const c = new THREE.Color(baseColorHex);
   const shade = fbm(x, z, 2, 0.5, 0.06);
+  
   c.offsetHSL(0, 0.015 * shade, 0.06 * shade);
+  
   if (type === 'river') {
-    c.lerp(new THREE.Color(0x80caeb), 0.42);
+    c.lerp(new THREE.Color(0x3598c4), 0.5);
   }
-  if (steepness > 0.42 || type === 'rock') {
-    c.lerp(new THREE.Color(0x8e8a82), Math.min(1, 0.4 + steepness));
+  
+  // Камень на крутых склонах
+  if (steepness > 0.35 || type === 'rock') {
+    c.lerp(new THREE.Color(0x7a7770), Math.min(1, 0.2 + steepness * 1.5));
   }
-  if (type !== 'river' && h > 1.25) c.lerp(new THREE.Color(0xe8e3db), Math.min(1, (h - 1.25) * 0.6));
-  if (type === 'fertile' || type === 'grass') {
-    c.lerp(new THREE.Color(0xd8c69b), Math.max(0, Math.min(1, (0.05 - h) * 2.5)) * 0.35);
+  
+  // Снег на вершинах
+  if (type !== 'river' && h > 1.4) {
+      c.lerp(new THREE.Color(0xffffff), Math.min(1, (h - 1.4) * 0.8));
   }
+  
   if (type === 'forest') {
-    c.lerp(new THREE.Color(0x46642d), 0.18);
+    c.lerp(new THREE.Color(0x3a5423), 0.25);
   }
   return c;
 }
@@ -240,7 +247,11 @@ export function buildTerrain(sceneCtx, state) {
     const x = pos.getX(i), z = pos.getZ(i);
     const tile = dominantTileAt(state, x, z);
     let h = sampleTerrainHeightFromGrid(state, x, z);
-    if (tile?.type === 'river') h = Math.min(h, GAME_CONFIG.terrain.waterLevel - 0.02 + fbm(x, z, 2, 0.5, 0.1) * 0.015);
+    
+    // Плавный спуск к воде
+    if (tile?.type === 'river') {
+        h = Math.min(h, GAME_CONFIG.terrain.waterLevel - 0.05);
+    }
     pos.setY(i, h);
   }
 
@@ -269,9 +280,10 @@ export function buildTerrain(sceneCtx, state) {
     const x = waterPos.getX(i), z = waterPos.getZ(i);
     const tile = dominantTileAt(state, x, z);
     let visible = tile?.type === 'river' ? 1 : 0;
-    visible *= Math.max(0, 1 - Math.min(1, (tile?.riverDistance || 99) / 6));
-    const wave = noise2D(x * 0.08, z * 0.08) * 0.03 * visible;
-    waterPos.setY(i, GAME_CONFIG.terrain.waterLevel + wave + (visible ? 0.026 : -8));
+    visible *= Math.max(0, 1 - Math.min(1, (tile?.riverDistance || 99) / 4));
+    
+    // Анимация волн будет обновляться шейдером, здесь базовая сетка
+    waterPos.setY(i, GAME_CONFIG.terrain.waterLevel + (visible ? 0 : -10));
   }
   waterGeo.computeVertexNormals();
   waterMesh = new THREE.Mesh(waterGeo, waterMaterial);
@@ -285,16 +297,12 @@ export function buildTerrain(sceneCtx, state) {
 
 export function updateTerrainVisuals(state, time = 0) {
   if (waterMaterial?.map) {
-    waterMaterial.map.offset.x = (time * 0.0007) % 1;
-    waterMaterial.map.offset.y = (time * 0.00035) % 1;
+    waterMaterial.map.offset.x = (time * 0.0002) % 1;
+    waterMaterial.map.offset.y = (time * 0.0001) % 1;
   }
   if (waterMaterial?.normalMap) {
-    waterMaterial.normalMap.offset.x = (-time * 0.0009) % 1;
-    waterMaterial.normalMap.offset.y = (time * 0.00045) % 1;
-  }
-  if (terrainMaterial?.map) {
-    terrainMaterial.map.offset.x = Math.sin(time * 0.00005) * 0.01;
-    terrainMaterial.map.offset.y = Math.cos(time * 0.00004) * 0.01;
+    waterMaterial.normalMap.offset.x = (-time * 0.0003) % 1;
+    waterMaterial.normalMap.offset.y = (time * 0.00015) % 1;
   }
 }
 
