@@ -13,7 +13,7 @@ import { GAME_CONFIG, BUILDINGS, UNITS } from './config.js';
 import { createInitialState } from './state.js';
 import { createScene } from './core/scene.js';
 import { generateWorld, getNeighbors, isTileInsideTerritory } from './systems/world.js';
-import { getTerrainY, updateTerrainVisuals } from './systems/terrain.js';
+import { getTerrainY, updateTerrainVisuals, buildTerrain } from './systems/terrain.js';
 import { renderTiles, renderRoads, clearDecorOnTile, populateDecorModels, updateTerritoryOverlay } from './systems/renderWorld.js';
 import { setupHud, updateHud } from './ui/hud.js';
 import { notify } from './ui/notifications.js';
@@ -107,7 +107,7 @@ async function bootstrap() {
 
   addEventListener('resize', () => {
     sceneCtx.resize();
-      refreshConstructionOverlays();
+    refreshConstructionOverlays();
   });
 }
 
@@ -210,7 +210,7 @@ async function makeCampMesh(tile, faction) {
 }
 
 async function spawnEnemyCamps() {
-  const farTiles = state.map.filter((t) => Math.hypot(t.pos.x, t.pos.z) > state.territoryRadius + 10 && t.type !== 'water');
+  const farTiles = state.map.filter((t) => Math.hypot(t.pos.x, t.pos.z) > state.territoryRadius + 10 && t.type !== 'water' && t.type !== 'river');
   farTiles.sort(() => Math.random() - .5);
   const factions = ['clans', 'iron', 'beasts'];
   state.enemyCamps = await Promise.all(farTiles.slice(0, GAME_CONFIG.enemyCampCount).map((tile, i) => {
@@ -272,6 +272,7 @@ async function tryPlaceBuilding(tile, forcedType = null) {
   updateHud(state);
   updateSelection(state);
   refreshConstructionOverlays();
+  buildTerrain(sceneCtx, state); // Пересобираем ландшафт, чтобы выровнять землю под постройкой
   return job;
 }
 
@@ -309,6 +310,7 @@ function openTappedBuildingMenu(tile, building) {
       updateHud(state);
       updateSelection(state);
       renderRoads(sceneCtx, state);
+      buildTerrain(sceneCtx, state); // Обновляем ландшафт, чтобы вернуть естественные холмы
     },
   });
 }
@@ -355,7 +357,7 @@ function onTileDoubleSelected(tile) {
     updateSelection(state);
     return;
   }
-  if (!isTileInsideTerritory(state, tile) || tile.type === 'water') {
+  if (!isTileInsideTerritory(state, tile) || tile.type === 'water' || tile.type === 'river') {
     notify('Эта сота пока не подходит для строительства');
     return;
   }
@@ -388,7 +390,6 @@ function highlightSelection() {
     if (building?.selection) building.selection.material.opacity = .65;
   }
 }
-
 
 function ensureUnitActionMenu() {
   let menu = document.getElementById('unit-action-menu');
@@ -450,7 +451,6 @@ function hookButtons() {
     btn.onclick = () => handleAction(btn.dataset.action);
   });
 }
-
 
 function handleAction(action) {
   if (action === 'focus-capital') {
@@ -652,7 +652,7 @@ function maybeAutoSave(dt) {
   state.autosaveTimer += dt;
   if (state.autosaveTimer < GAME_CONFIG.autosaveEvery) return;
   state.autosaveTimer = 0;
-  saveGame(state);
+  maybeSaveGame();
 }
 
 function checkStateMilestones() {
@@ -805,6 +805,10 @@ async function stepSimulation(dt) {
   maybeAutoSave(dt);
 }
 
+function maybeSaveGame() {
+  saveGame(state);
+}
+
 async function animate(now = performance.now()) {
   requestAnimationFrame(animate);
   const rawDt = Math.min(.05, (now - lastTime) / 1000);
@@ -815,7 +819,7 @@ async function animate(now = performance.now()) {
     await stepSimulation(dt);
     updateSelection(state);
     updateHud(state);
-    }
+  }
 
   updateConstructionOverlays();
   updateHealthOverlays();
