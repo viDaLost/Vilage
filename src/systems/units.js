@@ -256,10 +256,13 @@ function damageNearestBuilding(sceneCtx, state, unit, notify) {
   unit.attackCooldown = unit.range > 2 ? 1.45 : 1.05;
   unit.attackFlash = .16;
   playOneShot(unit.mesh, 'attack');
+  const rawDamage = unit.attack * (unit.type === 'brute' ? 1.5 : 1);
+  const damage = !unit.hostile && state.techs.has('discipline') ? rawDamage * 1.12 : rawDamage;
+  const reducedDamage = ['wall', 'tower', 'temple'].includes(nearest.type) && state.techs.has('stonework') ? damage * 0.82 : damage;
   if (unit.range > 2) {
-    state.projectiles.push(spawnProjectile(sceneCtx, unit.pos.clone().add(new THREE.Vector3(0, .95, 0)), buildingCenter(state, nearest).clone().add(new THREE.Vector3(0, .65, 0)), unit.hostile ? 0xffb278 : 0xffdd90, { buildingId: nearest.id, damage: unit.attack * (unit.type === 'brute' ? 1.5 : 1) }));
+    state.projectiles.push(spawnProjectile(sceneCtx, unit.pos.clone().add(new THREE.Vector3(0, .95, 0)), buildingCenter(state, nearest).clone().add(new THREE.Vector3(0, .65, 0)), unit.hostile ? 0xffb278 : 0xffdd90, { buildingId: nearest.id, damage: reducedDamage }));
   } else {
-    nearest.hp -= unit.attack * (unit.type === 'brute' ? 1.5 : 1);
+    nearest.hp -= reducedDamage;
     nearest.hitFlash = .25;
   }
   if (nearest.hp <= 0) {
@@ -409,10 +412,11 @@ function attackUnit(sceneCtx, state, unit, target) {
   unit.attackCooldown = unit.range > 2 ? 1.25 : 0.95;
   unit.attackFlash = .12;
   playOneShot(unit.mesh, 'attack');
+  const damage = unit.attack * (!unit.hostile && state.techs.has('discipline') ? 1.12 : 1);
   if (unit.range > 2) {
-    state.projectiles.push(spawnProjectile(sceneCtx, unit.pos.clone().add(new THREE.Vector3(0, .9, 0)), target.pos.clone().add(new THREE.Vector3(0, .8, 0)), unit.hostile ? 0xffa46d : 0xffe59e, { unitId: target.id, damage: unit.attack }));
+    state.projectiles.push(spawnProjectile(sceneCtx, unit.pos.clone().add(new THREE.Vector3(0, .9, 0)), target.pos.clone().add(new THREE.Vector3(0, .8, 0)), unit.hostile ? 0xffa46d : 0xffe59e, { unitId: target.id, damage }));
   } else {
-    target.hp -= unit.attack;
+    target.hp -= damage;
     target.hitFlash = .18;
   }
 }
@@ -423,10 +427,11 @@ export function updateUnits(sceneCtx, state, dt, notify) {
   const capitalTile = capital ? state.mapIndex.get(capital.tileId) : null;
   assignWorkers(state);
 
+  state.enemyCamps.forEach((camp) => { camp.spawnCooldown = Math.max(0, (camp.spawnCooldown || 0) - dt); });
+
   for (let i = state.units.length - 1; i >= 0; i--) {
     const unit = state.units[i];
     const vis = UNIT_VISUALS[unit.type] || UNIT_VISUALS.militia;
-    state.enemyCamps.forEach((camp) => { camp.spawnCooldown = Math.max(0, (camp.spawnCooldown || 0) - dt); });
     unit.attackCooldown = Math.max(0, unit.attackCooldown - dt);
     unit.attackFlash = Math.max(0, unit.attackFlash - dt * 2.2);
     unit.hitFlash = Math.max(0, unit.hitFlash - dt * 3.4);
@@ -507,6 +512,13 @@ export function updateUnits(sceneCtx, state, dt, notify) {
         targetPos = patrolTargetFor(unit, state, capitalTile);
       }
       }
+    }
+
+    if (targetPos && unit.manualTarget && unit.pos.distanceTo(targetPos) <= 0.18) {
+      unit.manualTarget = null;
+      unit.commandTarget = null;
+      unit.mode = 'idle';
+      targetPos = null;
     }
 
     if (targetPos) {

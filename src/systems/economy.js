@@ -29,7 +29,7 @@ export function applyRealTimeEconomy(state, dt) {
   const productivity = clamp(.68 + state.resources.stability / 100 * .54, .45, 1.26);
   const workerLoad = clamp(.58 + totalWorkers / Math.max(1, staffedDemand + 3) * .42, .55, 1.2);
   income.food *= weather.food * productivity;
-  income.gold *= (state.techs.has('caravans') ? 1.06 : 1) * productivity;
+  income.gold *= (state.techs.has('caravans') ? 1.06 + Math.min(0.18, (state.resources.roads || 0) * 0.006) : 1) * productivity;
   income.wood *= workerLoad;
   income.stone *= workerLoad;
   income.knowledge *= state.techs.has('archives') ? 1.05 : 1;

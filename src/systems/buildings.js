@@ -318,6 +318,10 @@ export async function finishConstruction(sceneCtx, state, job) {
   tile.buildingId = entity.id;
 
   if (cfg.territory) state.territoryRadius += cfg.territory;
+  if (state.techs.has('stonework') && ['wall', 'tower', 'temple'].includes(job.type)) {
+    entity.maxHp = Math.round(entity.maxHp * 1.18);
+    entity.hp = entity.maxHp;
+  }
   if (job.type === 'wonder') state.stats.wonderBuilt = 1;
   if (job.type === 'farm') spawnFarmBeds(sceneCtx, tile, entity);
   return entity;
@@ -372,6 +376,13 @@ export function computeBuildingYield(state, building) {
   if (building.type === 'capital' && state.era > 0) {
     out.gold += .14 * state.era;
     out.populationCap += 2 * state.era;
+  }
+
+  if (['farm', 'lumber', 'mine'].includes(building.type)) {
+    delete out.food;
+    delete out.wood;
+    delete out.stone;
+    delete out.gold;
   }
 
   const workerStatus = getBuildingWorkerStatus(state, building);
