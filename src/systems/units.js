@@ -344,6 +344,29 @@ function workerTaskTarget(unit, state, capitalTile) {
   return center.clone().add(offset);
 }
 
+function workerNearBuilding(unit, state, building, extraReach = 0.34) {
+  if (!building) return false;
+  const center = buildingCenter(state, building);
+  const radius = Math.max(0.75, (building.blockRadius || 0.9) + extraReach);
+  return dist2(unit.pos, center) <= radius;
+}
+
+function workerNearCapital(unit, state, capital, capitalTile, extraReach = 0.38) {
+  if (!capital && !capitalTile) return false;
+  if (!capital) return unit.pos.distanceTo(capitalTile.pos) <= 0.55 + extraReach;
+  const center = buildingCenter(state, capital);
+  const radius = Math.max(1.25, (capital.blockRadius || 2.0) + extraReach);
+  return dist2(unit.pos, center) <= radius;
+}
+
+function edgeTargetToward(unitPos, buildingPos, radius) {
+  const dir = new THREE.Vector3().subVectors(unitPos, buildingPos);
+  dir.y = 0;
+  if (dir.lengthSq() < 0.0001) dir.set(1, 0, 0);
+  dir.normalize();
+  return buildingPos.clone().addScaledVector(dir, radius);
+}
+
 function patrolTargetFor(unit, state, capitalTile) {
   const focus = unit.manualTarget || unit.commandTarget || unit.patrolCenter || (capitalTile ? capitalTile.pos : null);
   if (!focus) return null;
@@ -472,23 +495,40 @@ export function updateUnits(sceneCtx, state, dt, notify) {
           unit.mode = 'idle';
         }
       } else if (!assignedBuilding) {
-        targetPos = capitalPos;
+        if (capital) {
+          const capitalCenter = buildingCenter(state, capital);
+          const capitalRadius = Math.max(1.1, (capital.blockRadius || 2.0) - 0.18);
+          targetPos = edgeTargetToward(unit.pos, capitalCenter, capitalRadius);
+        } else {
+          targetPos = capitalPos;
+        }
       } else if (assignedBuilding.type === 'farm') {
         const node = workerTaskTarget(unit, state, capitalTile);
         targetPos = node;
         unit.gatherCooldown -= dt;
-        if (node && unit.pos.distanceTo(node) < 0.34) {
+        if (node && unit.pos.distanceTo(node) < 0.42) {
           if (unit.gatherCooldown <= 0) {
             unit.gatherCooldown = 1.2;
             state.resources.food += computeBuildingReturn(assignedBuilding);
           }
         }
       } else {
-        targetPos = unit.taskPhase === 'toBuilding' ? workerTaskTarget(unit, state, capitalTile) : capitalPos;
-        if (targetPos && unit.pos.distanceTo(targetPos) < 0.34) {
-          if (unit.taskPhase === 'toBuilding') {
+        if (unit.taskPhase === 'toBuilding') {
+          const workCenter = buildingCenter(state, assignedBuilding);
+          const workRadius = Math.max(0.72, (assignedBuilding.blockRadius || 0.95) - 0.15);
+          targetPos = edgeTargetToward(unit.pos, workCenter, workRadius);
+          if (workerNearBuilding(unit, state, assignedBuilding, 0.42)) {
             unit.taskPhase = 'toCapital';
+          }
+        } else {
+          if (capital) {
+            const capitalCenter = buildingCenter(state, capital);
+            const capitalRadius = Math.max(1.1, (capital.blockRadius || 2.0) - 0.18);
+            targetPos = edgeTargetToward(unit.pos, capitalCenter, capitalRadius);
           } else {
+            targetPos = capitalPos;
+          }
+          if (workerNearCapital(unit, state, capital, capitalTile, 0.42)) {
             state.resources[assignedBuilding.type === 'mine' ? 'stone' : 'wood'] += computeBuildingReturn(assignedBuilding);
             if (assignedBuilding.type === 'mine') state.resources.gold += 0.12 + assignedBuilding.level * 0.08;
             unit.taskPhase = 'toBuilding';

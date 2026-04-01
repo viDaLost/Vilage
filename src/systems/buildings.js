@@ -25,6 +25,34 @@ function scaleForBuilding(type, level) {
   return (base[type] || 1.0) * (1 + (level - 1) * .1);
 }
 
+
+function buildingBaseLift(type) {
+  return {
+    capital: 0.18,
+    barracks: 0.08,
+    temple: 0.07,
+    tower: 0.05,
+    wall: 0.03,
+  }[type] || 0.02;
+}
+
+function sampleBuildingAnchorY(tile, type) {
+  const points = [
+    [0, 0],
+    [0.42, 0],
+    [-0.42, 0],
+    [0, 0.42],
+    [0, -0.42],
+    [0.28, 0.28],
+    [-0.28, -0.28],
+  ];
+  let y = -Infinity;
+  for (const [ox, oz] of points) {
+    y = Math.max(y, sampleTileSurfaceY(tile, tile.pos.x + ox, tile.pos.z + oz));
+  }
+  return y + buildingBaseLift(type);
+}
+
 export function getUpgradeCost(type, nextLevel) {
   const cfg = BUILDINGS[type];
   const base = cfg.cost || {};
@@ -286,8 +314,8 @@ export async function finishConstruction(sceneCtx, state, job) {
 
   const placeholder = makeFallbackMesh(job.type === 'capital' ? 0xc9a45b : 0xa8844d);
   placeholder.scale.setScalar(scaleForBuilding(job.type, 1));
-  const surfaceY = sampleTileSurfaceY(tile, tile.pos.x, tile.pos.z);
-  placeholder.position.y = 0.03;
+  const anchorY = sampleBuildingAnchorY(tile, job.type);
+  placeholder.position.y = buildingBaseLift(job.type);
   entity.mesh.add(placeholder);
   entity.modelRoot = placeholder;
 
@@ -296,7 +324,7 @@ export async function finishConstruction(sceneCtx, state, job) {
     entity.mesh.remove(entity.modelRoot);
     entity.modelRoot = model;
     model.scale.setScalar(scaleForBuilding(job.type, entity.level || 1));
-    model.position.y = 0.02;
+    model.position.y = buildingBaseLift(job.type);
     entity.mesh.add(model);
   }).catch(() => {});
 
@@ -310,7 +338,7 @@ export async function finishConstruction(sceneCtx, state, job) {
   entity.mesh.add(light);
   entity.glow = light;
   entity.mesh.userData.tileId = tile.id;
-  entity.mesh.position.set(tile.pos.x, surfaceY, tile.pos.z);
+  entity.mesh.position.set(tile.pos.x, anchorY, tile.pos.z);
   sceneCtx.groups.buildings.add(entity.mesh);
 
   updateBuildingBadge(entity);
@@ -403,8 +431,8 @@ export function getCapital(state) {
 
 export function buildingCenter(state, building) {
   const tile = state.mapIndex.get(building.tileId);
-  const y = tile.surfaceY ?? tile.height;
-  return tile.pos.clone().setY(y + .6);
+  const baseY = building?.mesh?.position?.y ?? tile.surfaceY ?? tile.height;
+  return tile.pos.clone().setY(baseY + .6);
 }
 
 export function getBuildingStatus(state, building) {
