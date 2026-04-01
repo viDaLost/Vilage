@@ -190,6 +190,7 @@ export function spawnUnit(sceneCtx, state, type, pos, target = null) {
     patrolCenter: target ? target.clone() : null,
     manualTarget: null,
     forceJob: false,
+    awaitingWork: false,
     baseY: pos.y,
   };
   entity.mesh.position.copy(entity.pos);
@@ -294,32 +295,17 @@ function cleanupDeadUnit(sceneCtx, state, unit, index) {
 
 function assignWorkers(state) {
   const workers = state.units.filter((u) => !u.dead && u.type === 'worker');
-  const buildings = state.buildings
-    .map((b) => ({ building: b, demand: getBuildingWorkerDemand(b) }))
-    .filter((x) => x.demand > 0)
-    .sort((a, b) => (b.demand * 10 + b.building.level) - (a.demand * 10 + a.building.level));
-
   workers.forEach((w) => {
-    w.tempAssigned = false;
     if (w.manualTarget || w.mode === 'manual-move') {
-      w.assignedBuildingId = null;
       w.forceJob = false;
+      return;
     }
-  });
-  for (const { building, demand } of buildings) {
-    const assigned = workers.filter((w) => !w.manualTarget && w.assignedBuildingId === building.id && !w.tempAssigned).slice(0, demand);
-    assigned.forEach((w) => { w.tempAssigned = true; });
-    let remaining = demand - assigned.length;
-    if (remaining <= 0) continue;
-    const free = workers.filter((w) => !w.manualTarget && !w.tempAssigned).sort((a, b) => dist2(a.pos, buildingCenter(state, building)) - dist2(b.pos, buildingCenter(state, building)));
-    free.slice(0, remaining).forEach((w) => {
-      w.assignedBuildingId = building.id;
-      w.tempAssigned = true;
-    });
-  }
-  workers.forEach((w) => {
-    if (!w.tempAssigned && !state.buildings.some((b) => b.id === w.assignedBuildingId)) w.assignedBuildingId = null;
-    delete w.tempAssigned;
+    if (w.assignedBuildingId && !state.buildings.some((b) => b.id === w.assignedBuildingId)) {
+      w.assignedBuildingId = null;
+      w.awaitingWork = true;
+      w.taskPhase = 'toBuilding';
+      w.gatherCooldown = 0;
+    }
   });
 }
 
@@ -365,6 +351,23 @@ function capitalSpawnPoint(state, capital, tile) {
   const angles = [0.38, 1.18, 2.12, 3.02, 4.06, 5.08];
   const idx = Math.floor(Math.random() * angles.length);
   const angle = angles[idx] + (Math.random() - 0.5) * 0.2;
+  const x = center.x + Math.cos(angle) * ring;
+  const z = center.z + Math.sin(angle) * ring;
+  return new THREE.Vector3(x, getTerrainY(x, z), z);
+}
+
+
+export function spawnPointNearBuilding(state, building, slot = 0) {
+  if (!building) return null;
+  const center = buildingCenter(state, building);
+  const ring = Math.max(1.18, (building.blockRadius || 0.9) + 0.46);
+  const anglesByType = {
+    farm: [Math.PI * 0.15, Math.PI * 0.62, Math.PI * 1.18, Math.PI * 1.62],
+    lumber: [Math.PI * 1.1, Math.PI * 1.55, Math.PI * 0.18, Math.PI * 0.72],
+    mine: [Math.PI * 1.82, Math.PI * 0.34, Math.PI * 0.94, Math.PI * 1.46],
+  };
+  const angles = anglesByType[building.type] || [0.3, 1.3, 2.4, 5.1];
+  const angle = angles[slot % angles.length];
   const x = center.x + Math.cos(angle) * ring;
   const z = center.z + Math.sin(angle) * ring;
   return new THREE.Vector3(x, getTerrainY(x, z), z);
@@ -503,7 +506,12 @@ export function updateUnits(sceneCtx, state, dt, notify) {
       const capitalPos = capitalTile ? capitalTile.pos.clone() : unit.pos.clone();
       if (unit.forceJob && !unit.assignedBuildingId) {
         const freeBuilding = findNearestFreeWorkBuilding(unit, state);
-        if (freeBuilding) unit.assignedBuildingId = freeBuilding.id;
+        if (freeBuilding) {
+          unit.assignedBuildingId = freeBuilding.id;
+          unit.awaitingWork = false;
+          unit.taskPhase = 'toBuilding';
+          unit.gatherCooldown = 0;
+        }
         unit.forceJob = false;
       }
       const assignedBuilding = state.buildings.find((b) => b.id === unit.assignedBuildingId);
@@ -514,7 +522,9 @@ export function updateUnits(sceneCtx, state, dt, notify) {
           unit.mode = 'idle';
         }
       } else if (!assignedBuilding) {
-        if (capital) {
+        if (unit.awaitingWork) {
+          targetPos = null;
+        } else if (capital) {
           const capitalCenter = buildingCenter(state, capital);
           const capitalRadius = Math.max(1.1, (capital.blockRadius || 2.0) - 0.18);
           targetPos = edgeTargetToward(unit.pos, capitalCenter, capitalRadius);
