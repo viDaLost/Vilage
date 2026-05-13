@@ -29,7 +29,7 @@ import { maybeChangeWeather, updateEnemyWaves, updateEnvironmentState } from './
 import { saveGame, clearSave } from './systems/persistence.js';
 import { $, $$ } from './ui/dom.js';
 import { clamp } from './utils/helpers.js';
-import { loadDecorModel } from './core/assets.js';
+import { loadDecorModel, groundScene } from './core/assets.js';
 
 const state = createInitialState();
 const sceneCtx = createScene(document.getElementById('game'));
@@ -37,6 +37,14 @@ let ghostMesh = null;
 let lastTime = performance.now();
 let constructionDustTimer = 0;
 let emergencyReleased = false;
+
+function syncTileOverlayHeights() {
+  state.map.forEach((tile) => {
+    const y = getTerrainY(tile.pos.x, tile.pos.z);
+    tile.surfaceY = y;
+    if (tile.mesh) tile.mesh.position.y = y + 0.02;
+  });
+}
 
 function emergencyRelease() {
   if (emergencyReleased) return;
@@ -119,7 +127,10 @@ setTimeout(() => {
 }, 2500);
 
 async function spawnCapital() {
-  const center = state.map.filter((t) => t.type !== 'water').sort((a, b) => Math.hypot(a.pos.x, a.pos.z) - Math.hypot(b.pos.x, b.pos.z))[0];
+  const center = state.map
+    .filter((t) => ['grass', 'fertile', 'sacred'].includes(t.type))
+    .sort((a, b) => Math.hypot(a.pos.x, a.pos.z) - Math.hypot(b.pos.x, b.pos.z))[0]
+    || state.map.filter((t) => t.type !== 'water').sort((a, b) => Math.hypot(a.pos.x, a.pos.z) - Math.hypot(b.pos.x, b.pos.z))[0];
   const job = { type: 'capital', tileId: center.id, progress: 0, buildTime: 0, mode: 'new' };
   const capital = await finishConstruction(sceneCtx, state, job);
   state.capitalId = capital.id;
@@ -155,12 +166,20 @@ async function spawnCapital() {
     const build = placeConstruction(state, type, tile);
     build.progress = build.buildTime;
   }
+  // Rebuild terrain after reserving starter pads, so the first farms/mines are grounded from frame one.
+  buildTerrain(sceneCtx, state);
+  syncTileOverlayHeights();
   const completed = collectFinishedConstruction(state);
   const finishedBuildings = [];
   for (const done of completed) {
     const built = await finishConstruction(sceneCtx, state, done);
     if (built) finishedBuildings.push(built);
   }
+
+  finishedBuildings.forEach((building) => {
+    const tile = state.mapIndex.get(building.tileId);
+    if (tile) connectRoadsForTile(tile);
+  });
 
   finishedBuildings
     .filter((b) => ['farm', 'lumber', 'mine'].includes(b.type))
@@ -192,20 +211,21 @@ function createRoadNetworkFromCapital() {
 
 async function makeCampMesh(tile, faction) {
   const mesh = new THREE.Group();
+  const baseY = getTerrainY(tile.pos.x, tile.pos.z);
   const fallback = new THREE.Mesh(new THREE.CylinderGeometry(.76, .94, .42, 6), new THREE.MeshStandardMaterial({ color: faction === 'iron' ? 0x666d76 : faction === 'beasts' ? 0x5c3c18 : 0x7a1711, roughness: 1 }));
-  fallback.position.y = tile.height + .2;
+  fallback.position.y = .21;
   mesh.add(fallback);
   try {
     const filename = faction === 'iron' ? 'small-watch-tower.glb' : (faction === 'beasts' ? 'wooden-encampment.glb' : 'hut.glb');
     const campModel = await loadDecorModel(filename);
     campModel.scale.setScalar(faction === 'iron' ? 0.95 : 0.9);
-    campModel.position.y = tile.height + 0.02;
+    groundScene(campModel, 0.02);
     mesh.add(campModel);
   } catch {}
   const fire = new THREE.Mesh(new THREE.OctahedronGeometry(.19), new THREE.MeshStandardMaterial({ color: 0xff9345, emissive: 0xff7836, emissiveIntensity: 1.1 }));
-  fire.position.y = tile.height + .48;
+  fire.position.y = .78;
   mesh.add(fire);
-  mesh.position.set(tile.pos.x, 0, tile.pos.z);
+  mesh.position.set(tile.pos.x, baseY, tile.pos.z);
   return mesh;
 }
 
@@ -218,7 +238,7 @@ async function spawnEnemyCamps() {
     return makeCampMesh(tile, faction).then((mesh) => {
       sceneCtx.groups.enemyCamps.add(mesh);
       const hp = 120 + (faction === 'iron' ? 30 : 0);
-      return { id: `camp-${i}`, tileId: tile.id, hp, maxHp: hp, pos: tile.pos.clone(), mesh, faction, spawnCooldown: 5, hitFlash: 0 };
+      return { id: `camp-${i}`, tileId: tile.id, hp, maxHp: hp, pos: mesh.position.clone(), mesh, faction, spawnCooldown: 5, hitFlash: 0 };
     });
   }));
 }
@@ -271,8 +291,9 @@ async function tryPlaceBuilding(tile, forcedType = null) {
   removeGhost();
   updateHud(state);
   updateSelection(state);
-  refreshConstructionOverlays();
   buildTerrain(sceneCtx, state); // Пересобираем ландшафт, чтобы выровнять землю под постройкой
+  syncTileOverlayHeights();
+  refreshConstructionOverlays();
   return job;
 }
 
@@ -304,13 +325,14 @@ function openTappedBuildingMenu(tile, building) {
     demolish: () => {
       destroyBuilding(sceneCtx, state, building);
       removeRoadsForTile(tile.id);
-      spawnCollapse(sceneCtx, tile.pos.clone().add(new THREE.Vector3(0, tile.height + .5, 0)));
+      spawnCollapse(sceneCtx, tile.pos.clone().setY((tile.surfaceY ?? getTerrainY(tile.pos.x, tile.pos.z)) + .5));
       notify(`Постройка снесена: ${BUILDINGS[building.type].name}`);
       closeDrawer();
       updateHud(state);
       updateSelection(state);
-      renderRoads(sceneCtx, state);
       buildTerrain(sceneCtx, state); // Обновляем ландшафт, чтобы вернуть естественные холмы
+      syncTileOverlayHeights();
+      renderRoads(sceneCtx, state);
     },
   });
 }
@@ -326,10 +348,15 @@ function onTileSelected(tile) {
     return;
   }
   if (state.placementMode?.type === 'unit-command') {
+    if (tile.type === 'water') {
+      notify('Юниты не могут идти в воду. Выбери берег или сушу.');
+      return;
+    }
     state.selectedUnits.forEach((unit) => {
-      unit.manualTarget = tile.pos.clone();
-      unit.commandTarget = tile.pos.clone();
-      unit.patrolCenter = tile.pos.clone();
+      const targetPoint = new THREE.Vector3(tile.pos.x, getTerrainY(tile.pos.x, tile.pos.z), tile.pos.z);
+      unit.manualTarget = targetPoint.clone();
+      unit.commandTarget = targetPoint.clone();
+      unit.patrolCenter = targetPoint.clone();
       unit.mode = 'move';
       unit.forceJob = false;
     });
@@ -493,6 +520,11 @@ function bindTrainButtons() {
       const unitType = btn.dataset.unitType;
       if (!building || !unitType) return;
       const unit = UNITS[unitType];
+      if (state.era < (unit.minEra ?? 0)) return notify('Эта эпоха ещё не открыла такой тип войск');
+      const queuedPopulation = state.buildings.reduce((sum, b) => sum + (b.trainQueue?.length || 0), 0);
+      if ((state.resources.population || 0) + queuedPopulation >= (state.resources.populationCap || 0)) {
+        return notify('Не хватает места для людей. Улучши столицу или построй поддерживающие здания.');
+      }
       const ok = Object.entries(unit.cost).every(([k, v]) => (state.resources[k] || 0) >= v);
       if (!ok) return notify('Недостаточно ресурсов на обучение');
       Object.entries(unit.cost).forEach(([k, v]) => state.resources[k] -= v);
@@ -550,7 +582,7 @@ function refreshBuildPreview(type) {
   state.map.filter((tile) => canPlaceBuilding(state, type, tile)).slice(0, 220).forEach((tile) => {
     const ring = new THREE.Mesh(new THREE.RingGeometry(0.42, 0.52, 16), new THREE.MeshBasicMaterial({ color: 0xb7ff8a, transparent: true, opacity: 0.2, side: THREE.DoubleSide }));
     ring.rotation.x = -Math.PI / 2;
-    ring.position.set(tile.pos.x, tile.height + 0.05, tile.pos.z);
+    ring.position.set(tile.pos.x, getTerrainY(tile.pos.x, tile.pos.z) + 0.055, tile.pos.z);
     ring.userData.preview = true;
     sceneCtx.groups.ghosts.add(ring);
   });
@@ -562,9 +594,10 @@ function pointerGhostMove(e) {
   const raycaster = new THREE.Raycaster();
   const pointer = new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
   raycaster.setFromCamera(pointer, sceneCtx.camera);
-  const hits = raycaster.intersectObjects(sceneCtx.groups.tiles.children, false);
+  const hits = raycaster.intersectObjects(sceneCtx.groups.overlays.children, false);
   if (!hits.length) return;
-  const tile = state.map.find((t) => t.mesh === hits[0].object);
+  const hit = hits.find((h) => h.object?.userData?.tileId);
+  const tile = hit ? state.mapIndex.get(hit.object.userData.tileId) : null;
   if (!tile) return;
   ghostMesh.position.set(tile.pos.x, getTerrainY(tile.pos.x, tile.pos.z) + .12, tile.pos.z);
   const ok = canPlaceBuilding(state, state.selectedBuildType, tile);
@@ -696,7 +729,7 @@ function updateConstructionOverlays() {
     const el = wrap.querySelector(`[data-job-id="${job.id}"]`);
     if (!tile || !el) return;
     const world = tile.pos.clone();
-    world.y = tile.height + 2.7;
+    world.y = (tile.surfaceY ?? getTerrainY(tile.pos.x, tile.pos.z)) + 2.7;
     world.project(sceneCtx.camera);
     const x = (world.x * .5 + .5) * innerWidth;
     const y = (world.y * -.5 + .5) * innerHeight;
@@ -724,7 +757,10 @@ function updateHealthOverlays() {
   if (!wrap) return;
   const active = new Set();
   const items = [
-    ...state.buildings.map((b) => ({ id: `b-${b.id}`, hp: b.hp, maxHp: b.maxHp, pos: state.mapIndex.get(b.tileId)?.pos?.clone().setY(state.mapIndex.get(b.tileId)?.height + 2.2) })),
+    ...state.buildings.map((b) => {
+      const tile = state.mapIndex.get(b.tileId);
+      return { id: `b-${b.id}`, hp: b.hp, maxHp: b.maxHp, pos: tile?.pos?.clone().setY((tile.surfaceY ?? getTerrainY(tile.pos.x, tile.pos.z)) + 2.2) };
+    }),
     ...state.units.map((u) => ({ id: `u-${u.id}`, hp: u.hp, maxHp: u.maxHp, pos: u.pos.clone().setY(u.pos.y + 2.4) })),
     ...state.enemyCamps.map((c) => ({ id: `c-${c.id}`, hp: c.hp, maxHp: c.maxHp, pos: c.pos.clone().setY((c.pos.y || 0) + 2.8) }))
   ];

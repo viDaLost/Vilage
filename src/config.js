@@ -1,6 +1,6 @@
 export const GAME_CONFIG = {
   saveKey: 'empire-east-3d-rts-save-v30',
-  mapRadius: 13,
+  mapRadius: 14,
   hexSize: 1.72,
   axialScaleX: 0.985,
   axialScaleZ: 0.98,
@@ -11,12 +11,12 @@ export const GAME_CONFIG = {
   workerSpawnEvery: 38,
   enemyWaveEvery: 220,
   enemyCampCount: 5,
-  decorModelDensity: 0.58,
+  decorModelDensity: 0.62,
   maxPopulationSoft: 60,
   doubleTapMs: 340,
   decorPerTileSoftCap: 5,
   terrain: {
-    waterLevel: -1.1,
+    waterLevel: -0.72,
     riverBand: 0.055,
     hillLevel: 0.78,
     rockLevel: 1.12,
@@ -255,14 +255,15 @@ export const DECOR_MODELS = {
 };
 
 export const UNIT_MODEL_MAP = {
-  worker: { file: 'monk.gltf', targetHeight: 0.600, y: 0.0, rotY: 3.141592653589793, faceOffset: Math.PI },
-  militia: { file: 'warrior.gltf', targetHeight: 0.17, y: 0.0, rotY: 3.141592653589793, faceOffset: Math.PI },
-  archer: { file: 'ranger.gltf', targetHeight: 0.168, y: 0.0, rotY: 3.141592653589793, faceOffset: Math.PI },
-  swordsman: { file: 'rogue.gltf', targetHeight: 0.17, y: 0.0, rotY: 3.141592653589793, faceOffset: Math.PI },
-  raider: { file: 'rogue.gltf', targetHeight: 0.606, y: 0.0, rotY: 3.141592653589793, faceOffset: Math.PI },
-  raiderArcher: { file: 'ranger.gltf', targetHeight: 0.606, y: 0.0, rotY: 3.141592653589793, faceOffset: Math.PI },
-  brute: { file: 'warrior.gltf', targetHeight: 0.402, y: 0.0, rotY: 3.141592653589793, faceOffset: Math.PI },
-  wolfRider: { file: 'wizard.gltf', targetHeight: 0.40, y: 0.0, rotY: 3.141592653589793, faceOffset: Math.PI },
+  // Normalized to readable in-game size; the previous 0.17 heights made trained soldiers nearly invisible on many GLTF exports.
+  worker: { file: 'monk.gltf', targetHeight: 0.78, y: 0.0, rotY: Math.PI, faceOffset: Math.PI },
+  militia: { file: 'warrior.gltf', targetHeight: 0.94, y: 0.0, rotY: Math.PI, faceOffset: Math.PI },
+  archer: { file: 'ranger.gltf', targetHeight: 0.9, y: 0.0, rotY: Math.PI, faceOffset: Math.PI },
+  swordsman: { file: 'rogue.gltf', targetHeight: 0.94, y: 0.0, rotY: Math.PI, faceOffset: Math.PI },
+  raider: { file: 'rogue.gltf', targetHeight: 0.92, y: 0.0, rotY: Math.PI, faceOffset: Math.PI },
+  raiderArcher: { file: 'ranger.gltf', targetHeight: 0.9, y: 0.0, rotY: Math.PI, faceOffset: Math.PI },
+  brute: { file: 'warrior.gltf', targetHeight: 1.14, y: 0.0, rotY: Math.PI, faceOffset: Math.PI },
+  wolfRider: { file: 'wizard.gltf', targetHeight: 1.02, y: 0.0, rotY: Math.PI, faceOffset: Math.PI },
 };
 
 export const UNIT_VISUALS = {
