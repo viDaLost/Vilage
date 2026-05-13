@@ -143,12 +143,23 @@ export async function attachUnitModel(group, mapping) {
   }
 }
 
+export function groundScene(scene, floorOffset = 0.001) {
+  if (!scene) return scene;
+  scene.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(scene);
+  if (!Number.isFinite(box.min.y)) return scene;
+  scene.position.y += -box.min.y + floorOffset;
+  return scene;
+}
+
 export function makeFallbackMesh(color = 0xb4873e) {
   const group = new THREE.Group();
   const mesh = new THREE.Mesh(
     new THREE.BoxGeometry(1.2, 1, 1.2),
     new THREE.MeshStandardMaterial({ color, roughness: .86, metalness: .06 })
   );
+  // BoxGeometry is centered by default; lift it so fallback buildings never sink below terrain.
+  mesh.position.y = 0.5;
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   group.add(mesh);

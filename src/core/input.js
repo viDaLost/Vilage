@@ -80,8 +80,10 @@ export function setupInput(sceneCtx, state, handlers) {
 
     const unitHits = raycaster.intersectObjects(groups.units.children, true);
     if (unitHits.length) {
-      const unitObj = unitHits[0].object;
-      const unit = state.units.find((u) => u.mesh === unitObj.parent || u.mesh === unitObj || u.mesh.children.includes(unitObj));
+      let unitObj = unitHits[0].object;
+      while (unitObj && !unitObj.userData.unitId && unitObj.parent) unitObj = unitObj.parent;
+      const unitId = unitObj?.userData?.unitId;
+      const unit = unitId ? state.units.find((u) => u.id === unitId) : state.units.find((u) => u.mesh === unitObj);
       if (unit) return handlers.onUnit(unit, e);
     }
 
@@ -96,7 +98,8 @@ export function setupInput(sceneCtx, state, handlers) {
 
     const hits = raycaster.intersectObjects(groups.overlays.children, false);
     if (hits.length) {
-      const tile = state.map.find((t) => t.mesh === hits[0].object);
+      const hit = hits.find((h) => h.object?.userData?.tileId);
+      const tile = hit ? state.mapIndex.get(hit.object.userData.tileId) : null;
       if (tile) return dispatchTile(tile);
     }
 
