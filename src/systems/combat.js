@@ -76,7 +76,30 @@ export function updateProjectiles(sceneCtx, state, dt) {
       }
       if (p.payload?.buildingId) {
         const target = state.buildings.find((b) => b.id === p.payload.buildingId);
-        if (target) { target.hp -= p.payload.damage || 0; target.hitFlash = .18; }
+        if (target) {
+          target.hp -= p.payload.damage || 0;
+          target.hitFlash = .18;
+          if (target.hp <= 0) {
+            const center = buildingCenter(state, target);
+            spawnCollapse(sceneCtx, center, target.type === 'wall' ? 0x9c9c9c : 0xa06b44);
+            if (target.type === 'capital') {
+              target.hp = 0;
+            } else {
+              sceneCtx.groups.buildings.remove(target.mesh);
+              target.extraMeshes?.forEach((m) => sceneCtx.groups.decor.remove(m));
+              const tile = state.mapIndex.get(target.tileId);
+              if (tile) tile.buildingId = null;
+              state.units.forEach((u) => {
+                if (u.assignedBuildingId === target.id) {
+                  u.assignedBuildingId = null;
+                  u.awaitingWork = false;
+                  u.taskPhase = 'toBuilding';
+                }
+              });
+              state.buildings = state.buildings.filter((b) => b.id !== target.id);
+            }
+          }
+        }
       }
       spawnBurst(sceneCtx, p.to, 0xffc178, 6);
       sceneCtx.groups.effects.remove(p.mesh);

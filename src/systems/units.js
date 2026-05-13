@@ -193,6 +193,10 @@ export function spawnUnit(sceneCtx, state, type, pos, target = null) {
     awaitingWork: false,
     baseY: pos.y,
   };
+  entity.baseY = getTerrainY(entity.pos.x, entity.pos.z);
+  entity.pos.y = entity.baseY;
+  entity.mesh.userData.unitId = entity.id;
+  entity.mesh.traverse((obj) => { obj.userData.unitId = entity.id; });
   entity.mesh.position.copy(entity.pos);
   entity.mesh.position.y += .18;
   sceneCtx.groups.units.add(entity.mesh);
@@ -220,6 +224,10 @@ export function updateTraining(sceneCtx, state, dt, notify) {
         : new THREE.Vector3(tile.pos.x + .8, tile.height, tile.pos.z + .8);
       const target = current.type === 'worker' ? null : (building.rallyTileId ? state.mapIndex.get(building.rallyTileId)?.pos?.clone() : getCapital(state) ? state.mapIndex.get(getCapital(state).tileId).pos.clone() : null);
       const unit = spawnUnit(sceneCtx, state, current.type, spawnPos, target);
+      if (!unit.hostile) {
+        state.resources.population = Math.min(state.resources.populationCap || 99, (state.resources.population || 0) + 1);
+        if (unit.type !== 'worker') state.stats.armyUnits = state.units.filter((u) => !u.hostile && u.type !== 'worker').length;
+      }
       unit.homeBuildingId = building.id;
       if (target) {
         unit.commandTarget = target.clone();
@@ -290,7 +298,10 @@ function cleanupDeadUnit(sceneCtx, state, unit, index) {
   if (unit.mesh.userData.mixer) playOneShot(unit.mesh, 'death', 'idle');
   sceneCtx.groups.units.remove(unit.mesh);
   state.units.splice(index, 1);
-  if (!unit.hostile) state.stats.armyUnits = state.units.filter((u) => !u.hostile && u.type !== 'worker').length;
+  if (!unit.hostile) {
+    state.resources.population = Math.max(0, (state.resources.population || 0) - 1);
+    state.stats.armyUnits = state.units.filter((u) => !u.hostile && u.type !== 'worker').length;
+  }
 }
 
 function assignWorkers(state) {
@@ -302,9 +313,17 @@ function assignWorkers(state) {
     }
     if (w.assignedBuildingId && !state.buildings.some((b) => b.id === w.assignedBuildingId)) {
       w.assignedBuildingId = null;
-      w.awaitingWork = true;
+      w.awaitingWork = false;
       w.taskPhase = 'toBuilding';
       w.gatherCooldown = 0;
+    }
+    if (!w.assignedBuildingId && !w.awaitingWork) {
+      const free = findNearestFreeWorkBuilding(w, state);
+      if (free) {
+        w.assignedBuildingId = free.id;
+        w.taskPhase = 'toBuilding';
+        w.gatherCooldown = 0;
+      }
     }
   });
 }
@@ -398,6 +417,32 @@ function patrolTargetFor(unit, state, capitalTile) {
   return new THREE.Vector3(focus.x + Math.cos(t) * radius, focus.y || 0, focus.z + Math.sin(t) * radius);
 }
 
+function tileAtPosition(state, pos) {
+  let best = null;
+  let bestD = Infinity;
+  for (const tile of state.map) {
+    const dx = pos.x - tile.pos.x;
+    const dz = pos.z - tile.pos.z;
+    const d = dx * dx + dz * dz;
+    if (d < bestD) { bestD = d; best = tile; }
+  }
+  return best;
+}
+
+function keepOutOfWater(unit, state, previousPos) {
+  const tile = tileAtPosition(state, unit.pos);
+  if (tile?.type !== 'water') return;
+  unit.pos.copy(previousPos);
+  const dry = state.map
+    .filter((t) => t.type !== 'water')
+    .sort((a, b) => dist2(unit.pos, a.pos) - dist2(unit.pos, b.pos))[0];
+  if (dry) {
+    const dir = new THREE.Vector3().subVectors(dry.pos, unit.pos);
+    dir.y = 0;
+    if (dir.lengthSq() > 0.0001) unit.pos.addScaledVector(dir.normalize(), 0.12);
+  }
+}
+
 function keepAwayFromBuildings(unit, state) {
   for (const building of state.buildings) {
     const center = buildingCenter(state, building);
@@ -484,6 +529,7 @@ export function updateUnits(sceneCtx, state, dt, notify) {
     let targetPos = null;
     let moved = false;
     let attackTarget = null;
+    const previousPos = unit.pos.clone();
 
     if (unit.hostile) {
       const wallTargets = state.buildings.filter((b) => ['wall','tower','capital','barracks'].includes(b.type));
@@ -620,6 +666,7 @@ export function updateUnits(sceneCtx, state, dt, notify) {
     }
 
     keepAwayFromBuildings(unit, state);
+    keepOutOfWater(unit, state, previousPos);
     unit.baseY = getTerrainY(unit.pos.x, unit.pos.z);
     unit.mesh.position.set(unit.pos.x, unit.baseY + .02, unit.pos.z);
     const ringOpacity = unit.hostile ? .38 : .28;

@@ -4,6 +4,7 @@ import { loadDecorModel } from '../core/assets.js';
 import { buildTerrain, getTerrainPoint, getTerrainY } from './terrain.js';
 
 const terrainMaterials = new Map();
+let roadMaterial = null;
 
 function getTerrainMaterial(type) {
   if (terrainMaterials.has(type)) return terrainMaterials.get(type);
@@ -148,8 +149,56 @@ export function updateTerritoryOverlay(sceneCtx, state) {
   ring.geometry = new THREE.RingGeometry(state.territoryRadius - .15, state.territoryRadius + .1, 128);
 }
 
+function clearGroup(group) {
+  group.traverse((obj) => {
+    if (obj.isMesh) {
+      obj.geometry?.dispose?.();
+      if (Array.isArray(obj.material)) obj.material.forEach((m) => m.dispose?.());
+      else obj.material?.dispose?.();
+    }
+  });
+  group.clear();
+}
+
 export function renderRoads(sceneCtx, state) {
-  sceneCtx.groups.roads.clear();
+  clearGroup(sceneCtx.groups.roads);
+  roadMaterial = null;
+  if (!roadMaterial) {
+    roadMaterial = new THREE.MeshStandardMaterial({
+      color: 0x8f744f,
+      roughness: 0.96,
+      metalness: 0.02,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -2
+    });
+  }
+
+  for (const road of state.roads || []) {
+    const a = state.mapIndex.get(road.a);
+    const b = state.mapIndex.get(road.b);
+    if (!a || !b || a.type === 'water' || b.type === 'water') continue;
+    const mid = a.pos.clone().lerp(b.pos, 0.5);
+    const points = [a.pos, mid, b.pos].map((p, idx) => {
+      const wave = idx === 1 ? Math.sin((a.q + b.r) * 1.7) * 0.12 : 0;
+      const x = p.x + (idx === 1 ? wave : 0);
+      const z = p.z - (idx === 1 ? wave : 0);
+      return new THREE.Vector3(x, getTerrainY(x, z) + 0.075, z);
+    });
+    const curve = new THREE.CatmullRomCurve3(points);
+    const geom = new THREE.TubeGeometry(curve, 8, 0.085, 6, false);
+    const mesh = new THREE.Mesh(geom, roadMaterial);
+    mesh.receiveShadow = true;
+    sceneCtx.groups.roads.add(mesh);
+
+    const bead = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.16, 0.18, 0.035, 8),
+      roadMaterial
+    );
+    bead.position.set(mid.x, getTerrainY(mid.x, mid.z) + 0.088, mid.z);
+    bead.rotation.x = Math.PI / 2;
+    sceneCtx.groups.roads.add(bead);
+  }
 }
 
 function tileNearWater(state, tile) {

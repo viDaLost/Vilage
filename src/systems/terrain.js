@@ -11,6 +11,13 @@ let waterMesh = null;
 let terrainMaterial = null;
 let waterMaterial = null;
 
+function disposeObjectTree(root) {
+  if (!root) return;
+  root.traverse?.((obj) => {
+    if (obj.isMesh) obj.geometry?.dispose?.();
+  });
+}
+
 function makeCanvas(size = 512) {
   const canvas = document.createElement('canvas');
   canvas.width = size;
@@ -183,18 +190,18 @@ function dominantTileAt(state, x, z) {
 function macroTerrain(x, z, tile) {
   if (!tile) return 0;
   
-  // Если на клетке есть здание, делаем землю под ним ровной!
-  if (tile.buildingId) {
-    return 0; // Нулевой модификатор поверх базовой высоты тайла
-  }
+  // If a building or construction placeholder occupies the tile, the pad stays flat and stable.
+  if (tile.buildingId) return 0;
 
-  const gentle = fbm(x, z, 4, 0.55, 0.014) * 0.28;
-  const detail = fbm(x + 40, z - 10, 3, 0.45, 0.05) * 0.05;
-  
-  if (tile.type === 'river') return -0.1 + detail * 0.1;
-  if (tile.type === 'rock') return 0.5 + detail * 0.8;
-  if (tile.type === 'hill') return 0.2 + detail * 0.4;
-  
+  const gentle = fbm(x, z, 4, 0.55, 0.014) * 0.24;
+  const detail = fbm(x + 40, z - 10, 3, 0.45, 0.05) * 0.055;
+
+  if (tile.type === 'water') return -0.05 + detail * 0.04;
+  if (tile.type === 'river') return -0.03 + detail * 0.07;
+  if (tile.type === 'rock') return 0.42 + detail * 0.75;
+  if (tile.type === 'hill') return 0.18 + detail * 0.38;
+  if (tile.type === 'fertile') return gentle * 0.45 + detail * 0.45;
+
   return gentle + detail;
 }
 
@@ -211,8 +218,18 @@ function colorFor(type, h, x, z, steepness) {
   
   c.offsetHSL(0, 0.015 * shade, 0.06 * shade);
   
+  if (type === 'water') {
+    c.setHex(0x2f88b7);
+    c.offsetHSL(0, 0.03 * shade, 0.08 * shade);
+  }
+
   if (type === 'river') {
-    c.lerp(new THREE.Color(0x3598c4), 0.5);
+    c.lerp(new THREE.Color(0x6f9e6d), 0.35);
+    if (Math.abs(shade) > 0.35) c.lerp(new THREE.Color(0xd5c28d), 0.12);
+  }
+
+  if (type === 'fertile') {
+    c.lerp(new THREE.Color(0x9c8b53), 0.12);
   }
   
   // Камень на крутых склонах
@@ -233,8 +250,14 @@ function colorFor(type, h, x, z, steepness) {
 
 export function buildTerrain(sceneCtx, state) {
   const { groups } = sceneCtx;
-  if (terrainMesh) groups.tiles.remove(terrainMesh);
-  if (waterMesh) groups.tiles.remove(waterMesh);
+  if (terrainMesh) {
+    groups.tiles.remove(terrainMesh);
+    terrainMesh.geometry?.dispose?.();
+  }
+  if (waterMesh) {
+    groups.tiles.remove(waterMesh);
+    disposeObjectTree(waterMesh);
+  }
   ensureTerrainMaterials();
 
   const size = GAME_CONFIG.mapRadius * GAME_CONFIG.hexSize * 8.2;
@@ -248,10 +271,8 @@ export function buildTerrain(sceneCtx, state) {
     const tile = dominantTileAt(state, x, z);
     let h = sampleTerrainHeightFromGrid(state, x, z);
     
-    // Плавный спуск к воде
-    if (tile?.type === 'river') {
-        h = Math.min(h, GAME_CONFIG.terrain.waterLevel - 0.05);
-    }
+    // Water cells are carved below the animated water surface; river-bank cells stay walkable.
+    if (tile?.type === 'water') h = Math.min(h, GAME_CONFIG.terrain.waterLevel - 0.22);
     pos.setY(i, h);
   }
 
@@ -273,21 +294,21 @@ export function buildTerrain(sceneCtx, state) {
   terrainMesh.name = 'terrain-mesh';
   groups.tiles.add(terrainMesh);
 
-  let waterGeo = new THREE.PlaneGeometry(size, size, 120, 120);
-  waterGeo.rotateX(-Math.PI / 2);
-  const waterPos = waterGeo.attributes.position;
-  for (let i = 0; i < waterPos.count; i++) {
-    const x = waterPos.getX(i), z = waterPos.getZ(i);
-    const tile = dominantTileAt(state, x, z);
-    let visible = tile?.type === 'river' ? 1 : 0;
-    visible *= Math.max(0, 1 - Math.min(1, (tile?.riverDistance || 99) / 4));
-    
-    // Анимация волн будет обновляться шейдером, здесь базовая сетка
-    waterPos.setY(i, GAME_CONFIG.terrain.waterLevel + (visible ? 0 : -10));
+  waterMesh = new THREE.Group();
+  waterMesh.name = 'water-surfaces';
+  for (const tile of state.map) {
+    const isOpenWater = tile.type === 'water';
+    const wetRiverEdge = tile.type === 'river' && (tile.riverDistance || 99) < 1.45;
+    if (!isOpenWater && !wetRiverEdge) continue;
+    const radius = GAME_CONFIG.hexSize * (isOpenWater ? 0.9 : 0.48);
+    const waterGeo = new THREE.CircleGeometry(radius, 28);
+    waterGeo.rotateX(-Math.PI / 2);
+    const patch = new THREE.Mesh(waterGeo, waterMaterial);
+    patch.position.set(tile.pos.x, GAME_CONFIG.terrain.waterLevel + 0.018, tile.pos.z);
+    patch.rotation.y = (tile.q * 0.37 + tile.r * 0.21) % (Math.PI * 2);
+    patch.receiveShadow = true;
+    waterMesh.add(patch);
   }
-  waterGeo.computeVertexNormals();
-  waterMesh = new THREE.Mesh(waterGeo, waterMaterial);
-  waterMesh.receiveShadow = true;
   waterMesh.renderOrder = 2;
   groups.tiles.add(waterMesh);
 

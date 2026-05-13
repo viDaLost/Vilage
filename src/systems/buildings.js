@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { BUILDINGS } from '../config.js';
-import { loadBuildingModel, makeFallbackMesh, loadDecorModel } from '../core/assets.js';
+import { loadBuildingModel, makeFallbackMesh, loadDecorModel, groundScene } from '../core/assets.js';
 import { getNeighbors, isTileInsideTerritory } from './world.js';
 import { clearDecorOnTile, sampleTileSurfaceY } from './renderWorld.js';
 
@@ -45,7 +45,7 @@ function sampleBuildingAnchorY(tile, type) {
     const y = sampleTileSurfaceY(tile, tile.pos.x + ox, tile.pos.z + oz);
     if (y > maxY) maxY = y;
   }
-  return maxY + buildingBaseLift(type);
+  return Number.isFinite(maxY) ? maxY : (tile.surfaceY ?? tile.height ?? 0);
 }
 
 export function getUpgradeCost(type, nextLevel) {
@@ -69,12 +69,17 @@ export function canPlaceBuilding(state, type, tile) {
   const cfg = BUILDINGS[type];
   if (!cfg || !tile) return false;
   if (!isTileInsideTerritory(state, tile)) return false;
-  
-  // СТРОГИЕ ПРОВЕРКИ: Никакой воды и гор (если это не шахта)
-  if (tile.type === 'water' || tile.type === 'river') return false;
   if (tile.buildingId) return false;
-  if (type !== 'mine' && tile.type === 'rock') return false; 
+  if (tile.type === 'water') return false;
+
+  // Rock is only safe for mines, temples/towers, and late prestige projects. Everything else needs flatter land.
+  const rockAllowed = ['mine', 'tower', 'temple', 'wonder'].includes(type);
+  if (tile.type === 'rock' && !rockAllowed) return false;
   if (type === 'mine' && tile.type !== 'hill' && tile.type !== 'rock') return false;
+  if (type === 'harbor') {
+    const touchesWater = getNeighbors(state, tile).some((n) => n.type === 'water');
+    if (tile.type !== 'river' || !touchesWater) return false;
+  }
 
   if (cfg.minEra != null && state.era < cfg.minEra) return false;
   if (type === 'barracks' && !state.buildings.some((b) => b.type === 'lumber')) return false;
@@ -83,7 +88,7 @@ export function canPlaceBuilding(state, type, tile) {
   if (type === 'academy' && !state.buildings.some((b) => b.type === 'market')) return false;
   if (cfg.terrain && !cfg.terrain.includes(tile.type)) return false;
   if (type === 'wonder' && state.buildings.some((b) => b.type === 'wonder')) return false;
-  
+
   return true;
 }
 
@@ -157,6 +162,13 @@ export function destroyBuilding(sceneCtx, state, building) {
   if (tile) tile.buildingId = null;
   sceneCtx.groups.buildings.remove(building.mesh);
   if (building.extraMeshes?.length) building.extraMeshes.forEach((m) => sceneCtx.groups.decor.remove(m));
+  state.units.forEach((u) => {
+    if (u.assignedBuildingId === building.id) {
+      u.assignedBuildingId = null;
+      u.awaitingWork = true;
+      u.taskPhase = 'toBuilding';
+    }
+  });
   state.buildings = state.buildings.filter((b) => b.id !== building.id);
   const refund = Math.round((BUILDINGS[building.type].cost?.wood || 0) * .25);
   state.resources.wood += refund;
@@ -191,12 +203,18 @@ export async function createGhostBuildingMesh(type) {
   try {
     const model = await loadBuildingModel(cfg.model);
     model.scale.setScalar(scaleForBuilding(type, 1));
+    groundScene(model, buildingBaseLift(type));
     model.traverse((obj) => {
       if (obj.isMesh && obj.material) {
         const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
-        mats.forEach((m) => {
-          m = m.clone(); m.transparent = true; m.opacity = 0.38; m.depthWrite = false; obj.material = m;
+        const ghostMats = mats.map((m) => {
+          const clone = m.clone();
+          clone.transparent = true;
+          clone.opacity = 0.38;
+          clone.depthWrite = false;
+          return clone;
         });
+        obj.material = Array.isArray(obj.material) ? ghostMats : ghostMats[0];
       }
     });
     return model;
@@ -223,10 +241,7 @@ function makeTextSprite(text, color = '#ffe7a8', bg = 'rgba(36,14,5,0.65)', scal
 }
 
 function starCountForLevel(level) {
-  if (level <= 1) return 0;
-  if (level === 2) return 1;
-  if (level === 3) return 3;
-  return level;
+  return level <= 1 ? 0 : Math.min(5, level);
 }
 
 function updateBuildingBadge(building) {
@@ -282,7 +297,7 @@ export async function finishConstruction(sceneCtx, state, job) {
     entity.mesh.remove(entity.modelRoot);
     entity.modelRoot = model;
     model.scale.setScalar(scaleForBuilding(job.type, entity.level || 1));
-    model.position.y = buildingBaseLift(job.type);
+    groundScene(model, buildingBaseLift(job.type));
     entity.mesh.add(model);
   }).catch(() => {});
 
