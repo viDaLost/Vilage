@@ -1,7 +1,7 @@
 import { BUILDINGS, TECHS, UNITS, TERRAIN_TYPES } from '../config.js';
 import { $, $$ } from './dom.js';
 import { beginResearch, canResearch } from '../systems/economy.js';
-import { computeBuildingYield, getBuildingStatus, getBuildingWorkerStatus } from '../systems/buildings.js';
+import { canPlaceBuilding, computeBuildingYield, getBuildingStatus, getBuildingWorkerStatus } from '../systems/buildings.js';
 
 export function closeDrawer() {
   $('#context-drawer').classList.add('hidden');
@@ -43,8 +43,8 @@ export function openBuildMenu(state, onChoose) {
 
 export function openQuickBuildMenu(state, tile, onChoose) {
   const candidates = Object.entries(BUILDINGS)
-    .filter(([key, cfg]) => key !== 'capital' && (!cfg.minEra || state.era >= cfg.minEra))
-    .filter(([, cfg]) => !cfg.terrain || cfg.terrain.includes(tile.type))
+    .filter(([key]) => key !== 'capital')
+    .filter(([key]) => canPlaceBuilding(state, key, tile))
     .sort((a, b) => scoreCandidate(a[0], tile.type) - scoreCandidate(b[0], tile.type))
     .slice(0, innerWidth < 760 ? 8 : 6);
 
