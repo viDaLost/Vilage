@@ -1,17 +1,13 @@
 import * as THREE from 'three';
-import { MOUSE } from 'three';
 import { GAME_CONFIG } from '../config.js';
 import { closeDrawer } from '../ui/drawer.js';
 import { closeModal } from '../ui/modal.js';
-import { sampleTerrainHeight } from '../systems/terrain.js';
+import { sampleTerrain } from '../systems/world.js';
 
 export function setupInput(sceneCtx, state, handlers) {
   const { camera, renderer, groups, controls } = sceneCtx;
   const raycaster = new THREE.Raycaster();
   const pointer = new THREE.Vector2();
-
-  // We'll no longer set MOUSE properties here because MapControls does it during initialization.
-  // controls.mouseButtons.LEFT = MOUSE.ROTATE; // Removed to let MapControls govern
 
   let down = { x: 0, y: 0, t: 0 };
 
@@ -28,19 +24,29 @@ export function setupInput(sceneCtx, state, handlers) {
     raycaster.setFromCamera(pointer, camera);
   };
 
-  const dispatchTile = (hitPoint) => {
-    const now = performance.now();
-    // Simulate a pseudo-tile object since there's no continuous tile concept now
-    const tile = {
+  const makeTileFromPoint = (hitPoint, extra = {}) => {
+    const terrain = sampleTerrain(state, hitPoint.x, hitPoint.z);
+    return {
       isTile: true,
-      pos: new THREE.Vector3(hitPoint.x, 0, hitPoint.z),
-      surfaceY: hitPoint.y
+      pos: new THREE.Vector3(hitPoint.x, hitPoint.y ?? terrain.height ?? 0, hitPoint.z),
+      surfaceY: hitPoint.y ?? terrain.height ?? 0,
+      height: hitPoint.y ?? terrain.height ?? 0,
+      type: terrain.type || 'grass',
+      ...extra,
     };
+  };
+
+  const dispatchTile = (hitPoint, extra = {}) => {
+    const point = hitPoint?.isVector3 ? hitPoint : hitPoint?.pos;
+    if (!point?.isVector3) return;
+
+    const now = performance.now();
+    const tile = makeTileFromPoint(point, extra);
 
     // Fallback: check double tap based on position proximity
-    const isDoubleTap = state.lastTapPos && hitPoint.distanceTo(state.lastTapPos) < 2.0 && (now - state.lastTapAt) <= GAME_CONFIG.doubleTapMs;
+    const isDoubleTap = state.lastTapPos && point.distanceTo(state.lastTapPos) < 2.0 && (now - state.lastTapAt) <= GAME_CONFIG.doubleTapMs;
 
-    state.lastTapPos = hitPoint.clone();
+    state.lastTapPos = point.clone();
     state.lastTapAt = now;
 
     if (isDoubleTap && handlers.onTileDouble) handlers.onTileDouble(tile);
@@ -96,14 +102,7 @@ export function setupInput(sceneCtx, state, handlers) {
 
       // If we clicked a building, we can synthesize a tile object representing the building's footprint
       if (building) {
-        const tile = {
-            isTile: true,
-            buildingId: building.id,
-            pos: building.pos.clone(),
-            surfaceY: building.surfaceY || 0,
-            type: 'grass' // fallback
-        };
-        return dispatchTile(tile);
+        return dispatchTile(building.pos.clone().setY(building.surfaceY || building.pos.y || 0), { buildingId: building.id });
       }
     }
 
