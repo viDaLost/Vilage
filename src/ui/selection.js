@@ -16,11 +16,12 @@ export function updateSelection(state) {
   if (sel.kind === 'tile') {
     const tile = sel.ref;
     const building = getBuildingOnTile(state, tile);
-    title.textContent = building ? BUILDINGS[building.type].name : TERRAIN_TYPES[tile.type].name;
+    const terrain = TERRAIN_TYPES[tile.type || 'grass'] || TERRAIN_TYPES.grass;
+    title.textContent = building ? BUILDINGS[building.type].name : terrain.name;
     body.innerHTML = `
-      <div>Земля: <strong>${TERRAIN_TYPES[tile.type].name}</strong></div>
+      <div>Земля: <strong>${terrain.name}</strong></div>
       <div>Высота: <strong>${fmt(tile.height)}</strong></div>
-      <div>Зона: <strong>${isTileInsideTerritory(state, tile) ? 'Во владениях' : 'Вне владений'}</strong></div>
+      <div>Зона: <strong>${isTileInsideTerritory(state, tile.pos.x, tile.pos.z) ? 'Во владениях' : 'Вне владений'}</strong></div>
       ${building ? `<div>Здание: <strong>${BUILDINGS[building.type].name}</strong></div><div>Прочность: <strong>${fmt(building.hp)} / ${fmt(building.maxHp)}</strong></div><div>Рабочие: <strong>${building.activeWorkers || 0}${building.workerDemand ? ` / ${building.workerDemand}` : ''}</strong></div>` : '<div>Свободная клетка</div>'}
     `;
   }

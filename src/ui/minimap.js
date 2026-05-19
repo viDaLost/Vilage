@@ -1,4 +1,3 @@
-import { sampleTerrainHeight } from '../systems/terrain.js';
 import { sampleTerrain } from '../systems/world.js';
 import { GAME_CONFIG, TERRAIN_TYPES } from '../config.js';
 

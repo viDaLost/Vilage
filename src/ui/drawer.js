@@ -45,7 +45,7 @@ export function openQuickBuildMenu(state, tile, onChoose) {
   const candidates = Object.entries(BUILDINGS)
     .filter(([key]) => key !== 'capital')
     .filter(([key]) => canPlaceBuilding(state, key, tile.pos.x, tile.pos.z))
-    .sort((a, b) => scoreCandidate(a[0], tile.type || grass) - scoreCandidate(b[0], tile.type || grass))
+    .sort((a, b) => scoreCandidate(a[0], tile.type || 'grass') - scoreCandidate(b[0], tile.type || 'grass'))
     .slice(0, innerWidth < 760 ? 8 : 6);
 
   const cards = candidates.map(([key, cfg]) => `
@@ -57,7 +57,7 @@ export function openQuickBuildMenu(state, tile, onChoose) {
 
   openDrawer(
     `Быстрая постройка`,
-    `${TERRAIN_TYPES[tile.type].name} • двойной тап ставит последнюю постройку, если она подходит`,
+    `${TERRAIN_TYPES[tile.type || 'grass']?.name || 'Равнина'} • двойной тап ставит последнюю постройку, если она подходит`,
     `<div class="card-grid quick-grid">${cards || '<div class="list-item">Для этой клетки пока нет доступных построек.</div>'}</div>`
   );
 
@@ -136,7 +136,7 @@ export function openBuildingMenu(state, building, tile, handlers) {
 
   openDrawer(
     `${status.cfg.icon} ${status.cfg.name} • ур. ${building.level}`,
-    `${TERRAIN_TYPES[tile.type].name} • HP ${Math.round(building.hp)} / ${Math.round(building.maxHp)}`,
+    `${TERRAIN_TYPES[tile.type || 'grass']?.name || 'Равнина'} • HP ${Math.round(building.hp)} / ${Math.round(building.maxHp)}`,
     `
       <div class="list-item"><strong>Доход / эффект в секунду</strong><br>${Object.entries(yields).map(([k, v]) => `${k}: ${Math.round(v * 100) / 100}`).join(' • ') || 'Нет прямого дохода'}</div>
       <div class="list-item"><strong>Рабочие</strong><br>${worker.demand ? `${worker.assigned} / ${worker.demand} занято` : 'Не требуются'}${building.rallyTileId ? `<br>Точка сбора назначена` : ''}</div>

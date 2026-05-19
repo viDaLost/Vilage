@@ -1,5 +1,5 @@
 import { RESOURCE_META, ERA_DATA, WEATHER_TYPES } from '../config.js';
-import { $, $$ } from './dom.js';
+import { $ } from './dom.js';
 import { fmt } from '../utils/helpers.js';
 
 const PRIMARY_RESOURCES = new Set(['gold', 'food', 'wood', 'stone', 'population', 'workers', 'army', 'prestige', 'knowledge']);
@@ -39,6 +39,7 @@ export function updateHud(state) {
     let current = 0;
     if (o.metric === 'food') current = state.resources.food;
     if (o.metric === 'economyReady') current = state.buildings.filter((b) => ['farm','lumber','mine'].includes(b.type)).length;
+    if (o.metric === 'uniqueBuildings') current = new Set(state.buildings.map((b) => b.type)).size;
     if (o.metric === 'armyUnits') current = state.stats.armyUnits;
     if (o.metric === 'wonderBuilt') current = state.stats.wonderBuilt;
     const pct = Math.min(100, Math.round(current / o.target * 100));
