@@ -47,8 +47,8 @@ function emergencyRelease() {
   const ls = $('#loading-screen');
   if (ls) ls.style.display = 'none';
   state.timeScale = GAME_CONFIG.simBaseSpeed;
-  try { showRules(); } catch (e) {}
-  try { animate(); } catch (e) {}
+  try { showRules(); } catch { /* safe mode can run without modal UI */ }
+  try { animate(); } catch { /* animation fallback is best effort */ }
 }
 
 function setLoading(percent, text) {
@@ -130,7 +130,6 @@ async function spawnCapital() {
   state.resources.workers = 0;
   capital.level = 1;
 
-  const used = new Set();
   const pickStarter = (type, allowedTypes) => {
     // very hacky initial placement
     for (let r = 5.0; r < 25.0; r += 2.0) {
@@ -168,11 +167,6 @@ async function spawnCapital() {
     if (built) finishedBuildings.push(built);
   }
 
-  finishedBuildings.forEach((building) => {
-    const tile = null;
-    if (tile) connectRoadsForTile(tile);
-  });
-
   finishedBuildings
     .filter((b) => ['farm', 'lumber', 'mine'].includes(b.type))
     .forEach((building, index) => {
@@ -196,6 +190,7 @@ function createRoadNetworkFromCapital() {}
 async function makeCampMesh(px, pz, faction) {
   const mesh = new THREE.Group();
   const baseY = sampleTerrainHeight(state, px, pz);
+  mesh.position.set(px, baseY, pz);
   const fallback = new THREE.Mesh(new THREE.CylinderGeometry(.76, .94, .42, 6), new THREE.MeshStandardMaterial({ color: faction === 'iron' ? 0x666d76 : faction === 'beasts' ? 0x5c3c18 : 0x7a1711, roughness: 1 }));
   fallback.position.y = .21;
   mesh.add(fallback);
@@ -236,10 +231,6 @@ async function spawnEnemyCamps() {
     });
   }));
 }
-
-function addRoad(aId, bId) { return false; }
-
-function removeRoadsForTile(tileId) { return false; }
 
 async function tryPlaceBuilding(tile, forcedType = null) {
   if (!tile || !tile.pos) return;
@@ -457,10 +448,10 @@ function hookButtons() {
 function handleAction(action) {
   if (action === 'focus-capital') {
     const capital = getBuildingById(state, state.capitalId);
-    if (!capital) return;
-    const tile = null;
-    sceneCtx.controls.target.set(tile.pos.x, tile.height, tile.pos.z);
-    sceneCtx.camera.position.set(tile.pos.x + 18, tile.height + 19, tile.pos.z + 14);
+    if (!capital?.pos) return;
+    const y = Number.isFinite(capital.surfaceY) ? capital.surfaceY : capital.pos.y;
+    sceneCtx.controls.target.set(capital.pos.x, y, capital.pos.z);
+    sceneCtx.camera.position.set(capital.pos.x + 18, y + 19, capital.pos.z + 14);
     closeDrawer();
   }
   if (action === 'build-menu') {
@@ -541,7 +532,7 @@ async function showGhost(type) {
   try {
     const model = await createGhostBuildingMesh(type);
     if (model) ghostGroup.add(model);
-  } catch (e) {}
+  } catch { /* ghost preview keeps fallback mesh if model is unavailable */ }
   ghostMesh = ghostGroup;
   sceneCtx.groups.ghosts.add(ghostMesh);
   sceneCtx.renderer.domElement.addEventListener('pointermove', pointerGhostMove);
@@ -552,7 +543,7 @@ function clearBuildPreview() {
   sceneCtx.groups.ghosts.children.filter((c) => c.userData?.preview).forEach((c) => sceneCtx.groups.ghosts.remove(c));
 }
 
-function refreshBuildPreview(type) {
+function refreshBuildPreview() {
   clearBuildPreview();
 }
 
@@ -591,23 +582,18 @@ function removeGhost() {
 
 async function processFinishedConstruction() {
   const done = collectFinishedConstruction(state);
-  let roadsChanged = false;
   for (const job of done) {
     const entity = await finishConstruction(sceneCtx, state, job);
     if (entity) {
-      const tile = null;
-      if (tile) roadsChanged = connectRoadsForTile(tile) || roadsChanged;
       notify(job.mode === 'upgrade' ? `Улучшено: ${BUILDINGS[entity.type].name} ур. ${entity.level}` : `Построено: ${BUILDINGS[job.type].name}`);
     }
   }
   if (done.length) {
     refreshConstructionOverlays();
     updateTerritoryOverlay(sceneCtx, state);
-    if (roadsChanged) renderRoads(sceneCtx, state);
+    renderRoads(sceneCtx, state);
   }
 }
-
-function connectRoadsForTile(tile) { return false; }
 
 function updateDayNightVisual(dt) {
   const t = (state.dayTime % GAME_CONFIG.dayDuration) / GAME_CONFIG.dayDuration;
@@ -636,6 +622,8 @@ function updateDayNightVisual(dt) {
     } else {
       b.mesh.scale.setScalar(1);
     }
+  });
+}
 
 function maybeAutoSave(dt) {
   state.autosaveTimer += dt;
@@ -838,6 +826,6 @@ bootstrap().catch((err) => {
   try {
     $('#loading-text').textContent = 'Мир запущен в безопасном режиме';
     notify('Часть моделей отключена для стабильного запуска');
-  } catch (e) {}
+  } catch { /* UI may already be unavailable after a bootstrap failure */ }
   emergencyRelease();
 });
