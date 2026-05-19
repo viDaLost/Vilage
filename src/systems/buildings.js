@@ -4,7 +4,6 @@ import * as THREE from 'three';
 import { BUILDINGS } from '../config.js';
 import { loadBuildingModel, makeFallbackMesh, loadDecorModel, groundScene } from '../core/assets.js';
 
-import { clearDecorOnTile, sampleTileSurfaceY } from './renderWorld.js';
 
 let buildingId = 1;
 
@@ -35,19 +34,6 @@ function buildingBaseLift(type) {
     tower: 0.05,
     wall: 0.03,
   }[type] || 0.02;
-}
-
-// Теперь здание ищет самую ВЫСОКУЮ точку на своей клетке, чтобы не проваливаться
-function sampleBuildingAnchorY(tile, type) {
-  const points = [
-    [0, 0], [0.4, 0], [-0.4, 0], [0, 0.4], [0, -0.4], [0.25, 0.25], [-0.25, -0.25]
-  ];
-  let maxY = -Infinity;
-  for (const [ox, oz] of points) {
-    const y = sampleTileSurfaceY(tile, tile.pos.x + ox, tile.pos.z + oz);
-    if (y > maxY) maxY = y;
-  }
-  return Number.isFinite(maxY) ? maxY : (tile.surfaceY ?? tile.height ?? 0);
 }
 
 export function getUpgradeCost(type, nextLevel) {
@@ -190,7 +176,9 @@ function spawnFarmBeds(sceneCtx, state, cx, cz, entity) {
         sceneCtx.groups.decor.add(model);
         beds.push(model);
       }
-    } catch {}
+    } catch {
+      // Decorative crop beds are optional; the gameplay building remains valid without them.
+    }
   })();
 }
 
@@ -272,20 +260,20 @@ export async function finishConstruction(sceneCtx, state, job) {
   const cfg = BUILDINGS[job.type];
   if (!cfg) return null;
 
-  const h = sampleTerrainHeight(state, job.x, job.z);
-
-
+  const anchorY = sampleTerrainHeight(state, job.x, job.z);
 
   const entity = {
     id: `b-${buildingId++}`, type: job.type, tileId: null, level: 1, hp: cfg.health, maxHp: cfg.health,
     cooldown: 0, trainQueue: [], mesh: new THREE.Group(), selection: null, glow: null, hitFlash: 0,
     upgrading: false, extraMeshes: [], levelBadge: null, rallyTileId: null, workerDemand: 0, activeWorkers: 0,
-    workerRatio: 1, blockRadius: 0.9 + (job.type === 'capital' ? 1.2 : 0)
+    workerRatio: 1, blockRadius: 0.9 + (job.type === 'capital' ? 1.2 : 0),
+    pos: new THREE.Vector3(job.x, anchorY, job.z),
+    surfaceY: anchorY,
+    rallyPos: null
   };
 
   const placeholder = makeFallbackMesh(job.type === 'capital' ? 0xc9a45b : 0xa8844d);
   placeholder.scale.setScalar(scaleForBuilding(job.type, 1));
-  const anchorY = sampleTerrainHeight(state, job.x, job.z);
   placeholder.position.y = buildingBaseLift(job.type);
   entity.mesh.add(placeholder);
   entity.modelRoot = placeholder;
@@ -383,7 +371,9 @@ export function computeBuildingYield(state, building) {
 export function getCapital(state) { return state.buildings.find((b) => b.type === 'capital') || null; }
 
 export function buildingCenter(state, building) {
-  return building.pos.clone().setY(building.surfaceY + .6);
+  if (!building?.pos) return new THREE.Vector3(0, 0.6, 0);
+  const y = Number.isFinite(building.surfaceY) ? building.surfaceY : building.pos.y;
+  return building.pos.clone().setY(y + .6);
 }
 
 export function getBuildingStatus(state, building) {

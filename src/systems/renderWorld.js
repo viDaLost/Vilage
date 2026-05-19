@@ -1,7 +1,7 @@
 import * as THREE from 'three';
-import { TERRAIN_TYPES, DECOR_MODELS, GAME_CONFIG } from '../config.js';
+import { DECOR_MODELS, GAME_CONFIG } from '../config.js';
 import { loadDecorModel } from '../core/assets.js';
-import { buildTerrain, sampleTerrainHeight, getTerrainY } from './terrain.js';
+import { buildTerrain, sampleTerrainHeight } from './terrain.js';
 import { sampleTerrain } from './world.js';
 
 async function addDistantMountains(group) {
@@ -62,7 +62,7 @@ function clearGroup(group) {
   group.clear();
 }
 
-export function renderRoads(sceneCtx, state) {
+export function renderRoads(sceneCtx) {
   clearGroup(sceneCtx.groups.roads);
   // Roads will be completely revamped with continuous map
 }

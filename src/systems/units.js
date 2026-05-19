@@ -4,8 +4,8 @@ import { GAME_CONFIG, UNITS, UNIT_MODEL_MAP, UNIT_VISUALS } from '../config.js';
 import { getCapital, buildingCenter, getBuildingWorkerDemand } from './buildings.js';
 import { dist2 } from '../utils/helpers.js';
 import { spawnCollapse, spawnProjectile } from './combat.js';
-import { attachUnitModel, playAnim } from '../core/assets.js';
-import { sampleTerrainHeight } from './terrain.js';
+import { attachUnitModel } from '../core/assets.js';
+import { getTerrainY } from './terrain.js';
 import { sampleTerrain } from './world.js';
 
 let unitId = 1;
@@ -221,7 +221,7 @@ export function updateTraining(sceneCtx, state, dt, notify) {
     if (current.progress >= current.trainTime) {
 
       const spawnPos = new THREE.Vector3(building.pos.x + 1.2, building.surfaceY, building.pos.z + 1.2);
-      const target = current.type === worker ? null : getCapital(state) ? getCapital(state).pos.clone() : null;
+      const target = current.type === 'worker' ? null : getCapital(state) ? getCapital(state).pos.clone() : null;
       const unit = spawnUnit(sceneCtx, state, current.type, spawnPos, target);
       if (!unit.hostile) {
         state.resources.population = Math.min(state.resources.populationCap || 99, (state.resources.population || 0) + 1);
@@ -283,7 +283,6 @@ function damageNearestBuilding(sceneCtx, state, unit, notify) {
     } else {
       sceneCtx.groups.buildings.remove(nearest.mesh);
 
-      if (tile) tile.buildingId = null;
       state.buildings = state.buildings.filter((b) => b.id !== nearest.id);
       notify(`Разрушено здание: ${nearest.type}`);
     }
@@ -362,19 +361,6 @@ function workerNearBuilding(unit, state, building, extraReach = 0.34) {
   return dist2(unit.pos, center) <= radius;
 }
 
-function capitalSpawnPoint(state, capital, tile) {
-  const center = capital ? buildingCenter(state, capital) : tile?.pos?.clone();
-  if (!center) return null;
-  const ring = Math.max(1.75, (capital?.blockRadius || 2.1) + 0.45);
-  const angles = [0.38, 1.18, 2.12, 3.02, 4.06, 5.08];
-  const idx = Math.floor(Math.random() * angles.length);
-  const angle = angles[idx] + (Math.random() - 0.5) * 0.2;
-  const x = center.x + Math.cos(angle) * ring;
-  const z = center.z + Math.sin(angle) * ring;
-  return new THREE.Vector3(x, getTerrainY(x, z), z);
-}
-
-
 export function spawnPointNearBuilding(state, building, slot = 0) {
   if (!building) return null;
   const center = buildingCenter(state, building);
@@ -392,8 +378,7 @@ export function spawnPointNearBuilding(state, building, slot = 0) {
 }
 
 function workerNearCapital(unit, state, capital, extraReach = 0.38) {
-  if (!capital && !capitalTile) return false;
-  if (!capital) return unit.pos.distanceTo(capitalTile.pos) <= 0.55 + extraReach;
+  if (!capital) return false;
   const center = buildingCenter(state, capital);
   const radius = Math.max(1.25, (capital.blockRadius || 2.0) + extraReach);
   return dist2(unit.pos, center) <= radius;
@@ -408,7 +393,8 @@ function edgeTargetToward(unitPos, buildingPos, radius) {
 }
 
 function patrolTargetFor(unit, state) {
-  const focus = unit.manualTarget || unit.commandTarget || unit.patrolCenter || (capitalTile ? capitalTile.pos : null);
+  const capital = getCapital(state);
+  const focus = unit.manualTarget || unit.commandTarget || unit.patrolCenter || (capital ? buildingCenter(state, capital) : null);
   if (!focus) return null;
   if (unit.manualTarget) return unit.manualTarget.clone();
   const t = (performance.now() * 0.001 + Number(String(unit.id).replace(/\D/g, '')) * 0.37) % (Math.PI * 2);
@@ -431,17 +417,16 @@ function keepOutOfWater(unit, state, previousPos) {
 
 function keepAwayFromBuildings(unit, state) {
   for (const b of state.buildings) {
-      const center = buildingCenter(state, b);
-      const dx = unit.pos.x - center.x;
-      const dz = unit.pos.z - center.z;
-      const d = Math.hypot(dx, dz);
-      const r = b.blockRadius || 1.2;
-      if (d < r) {
-          const push = r - d + 0.05;
-          unit.pos.x += (dx / d) * push;
-          unit.pos.z += (dz / d) * push;
-      }
-      }
+    const center = buildingCenter(state, b);
+    const dx = unit.pos.x - center.x;
+    const dz = unit.pos.z - center.z;
+    const d = Math.hypot(dx, dz);
+    const r = b.blockRadius || 1.2;
+    if (d > 0.0001 && d < r) {
+      const push = r - d + 0.05;
+      unit.pos.x += (dx / d) * push;
+      unit.pos.z += (dz / d) * push;
+    }
   }
 }
 
@@ -599,7 +584,7 @@ export function updateUnits(sceneCtx, state, dt, notify) {
           } else {
             targetPos = capitalPos;
           }
-          if (workerNearBuilding(unit, state, capital, 0.42)) {
+          if (workerNearCapital(unit, state, capital, 0.42)) {
             state.resources[assignedBuilding.type === 'mine' ? 'stone' : 'wood'] += computeBuildingReturn(assignedBuilding);
             if (assignedBuilding.type === 'mine') state.resources.gold += 0.12 + assignedBuilding.level * 0.08;
             unit.taskPhase = 'toBuilding';
@@ -693,7 +678,6 @@ export function autoSpawnWorkers(sceneCtx, state, dt, notify) {
   const capital = getCapital(state);
   if (!capital) return;
 
-  if (!tile) return;
   state.resources.population += 1;
   state.resources.food = Math.max(0, state.resources.food - 6);
   const spawnPos = new THREE.Vector3(capital.pos.x + 1.2, capital.surfaceY, capital.pos.z + 1.2);
@@ -702,7 +686,3 @@ export function autoSpawnWorkers(sceneCtx, state, dt, notify) {
   notify('В столице вырос новый рабочий для экономики');
 }
 
-function workerNearBuilding(unit, state, building, tolerance) {
-  if (!building) return false;
-  return dist2(unit.pos, building.pos) <= (building.blockRadius || 1.2) + tolerance;
-}

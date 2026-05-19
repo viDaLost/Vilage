@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { createNoise2D } from 'simplex-noise';
-import { GAME_CONFIG, TERRAIN_TYPES } from '../config.js';
+import { GAME_CONFIG } from '../config.js';
 
 // Continuous space mapping
 export function worldToGrid(x, z) {
