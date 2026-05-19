@@ -2,6 +2,7 @@ export const GAME_CONFIG = {
   saveKey: 'empire-east-3d-rts-save-v30',
   mapRadius: 14,
   hexSize: 1.72,
+  gridSize: 2.0,
   axialScaleX: 0.985,
   axialScaleZ: 0.98,
   simBaseSpeed: 1,
@@ -46,12 +47,7 @@ export const ERA_DATA = [
   { name: 'Золотой век', desc: 'Империя претендует на чудо света и господство.' }
 ];
 
-export const WEATHER_TYPES = {
-  clear: { label: 'Ясно', light: 1, food: 1, speed: 1 },
-  rain: { label: 'Дождь', light: .84, food: 1.18, speed: .92 },
-  mist: { label: 'Туман', light: .72, food: 1, speed: .86 },
-  dust: { label: 'Пыльная буря', light: .76, food: .88, speed: .78 }
-};
+
 
 export const TERRAIN_TYPES = {
   water: { name: 'Вода', buildable: false, color: 0x8ab4d7, tint: 0xb7e1f3 },
@@ -83,7 +79,7 @@ export const BUILDINGS = {
     yields: { food: .95 },
     maxLevel: 3,
     health: 110,
-    terrain: ['grass', 'fertile', 'river'],
+    terrain: [],
     requiredWorkers: 1
   },
   lumber: {
@@ -93,7 +89,7 @@ export const BUILDINGS = {
     yields: { wood: .82 },
     maxLevel: 3,
     health: 120,
-    terrain: ['forest', 'grass'],
+    terrain: [],
     requiredWorkers: 1
   },
   mine: {
@@ -103,7 +99,7 @@ export const BUILDINGS = {
     yields: { stone: .72, gold: .12 },
     maxLevel: 3,
     health: 132,
-    terrain: ['hill', 'rock'],
+    terrain: [],
     requiredWorkers: 1
   },
   market: {
@@ -113,7 +109,7 @@ export const BUILDINGS = {
     yields: { gold: .8 },
     maxLevel: 3,
     health: 120,
-    terrain: ['grass', 'fertile', 'river'],
+    terrain: [],
     requiredWorkers: 1
   },
   granary: {
@@ -123,7 +119,7 @@ export const BUILDINGS = {
     yields: { food: .28, stability: .02 },
     maxLevel: 3,
     health: 128,
-    terrain: ['grass', 'fertile', 'river'],
+    terrain: [],
     requiredWorkers: 1
   },
   temple: {
@@ -133,7 +129,7 @@ export const BUILDINGS = {
     yields: { prestige: .22, stability: .06, knowledge: .05 },
     maxLevel: 3,
     health: 164,
-    terrain: ['grass', 'fertile', 'rock', 'hill', 'river', 'sacred'],
+    terrain: [],
     requiredWorkers: 1
   },
   barracks: {
@@ -144,7 +140,7 @@ export const BUILDINGS = {
     maxLevel: 3,
     train: ['militia', 'archer', 'swordsman'],
     health: 185,
-    terrain: ['grass', 'hill', 'rock', 'fertile']
+    terrain: []
   },
   wall: {
     name: 'Стена', icon: '🧱', model: 'stone-wall.glb', category: 'military',
@@ -153,7 +149,7 @@ export const BUILDINGS = {
     yields: { defense: .3 },
     maxLevel: 2,
     health: 260,
-    terrain: ['grass', 'hill', 'rock', 'fertile', 'forest']
+    terrain: []
   },
   tower: {
     name: 'Башня', icon: '🏹', model: 'fortress.glb', category: 'military',
@@ -163,7 +159,7 @@ export const BUILDINGS = {
     maxLevel: 2,
     health: 236,
     territory: 1.35,
-    terrain: ['grass', 'hill', 'rock', 'fertile']
+    terrain: []
   },
   academy: {
     name: 'Академия', icon: '📚', model: 'academy.glb', category: 'culture',
@@ -172,7 +168,7 @@ export const BUILDINGS = {
     yields: { knowledge: .18, prestige: .04 },
     maxLevel: 2,
     health: 162,
-    terrain: ['grass', 'fertile', 'hill', 'sacred'],
+    terrain: [],
     minEra: 1,
     requiredWorkers: 1
   },
@@ -183,7 +179,7 @@ export const BUILDINGS = {
     yields: { gold: 1.0, prestige: .05 },
     maxLevel: 2,
     health: 145,
-    terrain: ['river'],
+    terrain: [],
     minEra: 1,
     requiredWorkers: 1
   },
@@ -194,7 +190,7 @@ export const BUILDINGS = {
     yields: { prestige: .4, stability: .14, knowledge: .14 },
     maxLevel: 1,
     health: 320,
-    terrain: ['sacred', 'hill', 'rock'],
+    terrain: [],
     minEra: 2,
     requiredWorkers: 2
   }
@@ -235,6 +231,8 @@ export const UNITS = {
     cost: {}, speed: 2.7, hp: 52, attack: 7, range: .9, hostile: true, role: 'melee', faction: 'beasts'
   }
 };
+
+
 
 export const DECOR_MODELS = {
   tree: { file: 'trees.glb', scale: 0.72, y: 0.0, root: 'decor' },
@@ -287,8 +285,14 @@ export const TECHS = [
 ];
 
 export const OBJECTIVES = [
-  { id: 'food', title: 'Сильные амбары', target: 220, metric: 'food', reward: { population: 2, stability: 8 } },
-  { id: 'economy', title: 'Запустить хозяйство', target: 2, metric: 'economyReady', reward: { gold: 20, prestige: 3 } },
-  { id: 'army', title: 'Собрать войско', target: 10, metric: 'armyUnits', reward: { prestige: 6, stability: 4 } },
-  { id: 'wonder', title: 'Создать чудо', target: 1, metric: 'wonderBuilt', reward: { prestige: 18, stability: 14 } }
+  { id: 'all_buildings', title: 'Построить все здания', target: 12, metric: 'uniqueBuildings', reward: { prestige: 20, stability: 20 } },
+  { id: 'wonder', title: 'Создать чудо и достичь максимума', target: 1, metric: 'wonderBuilt', reward: { prestige: 18, stability: 14 } }
 ];
+
+export const WEATHER_TYPES = {
+  clear: { name: 'Ясно', label: 'Ясно', food: 1.0, move: 1.0 },
+  rain: { name: 'Дождь', label: 'Дождь', food: 0.8, move: 0.75 },
+  mist: { name: 'Туман', label: 'Туман', food: 1.0, move: 0.9 },
+  dust: { name: 'Буря', label: 'Буря', food: 0.5, move: 0.5 },
+  snow: { name: 'Снег', label: 'Снег', food: 0.2, move: 0.4 }
+};

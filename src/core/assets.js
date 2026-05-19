@@ -165,3 +165,7 @@ export function makeFallbackMesh(color = 0xb4873e) {
   group.add(mesh);
   return group;
 }
+
+export function playAnim(mesh, animName, dt) {
+  if (mesh.userData.mixer) mesh.userData.mixer.update(dt);
+}

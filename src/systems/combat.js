@@ -87,8 +87,7 @@ export function updateProjectiles(sceneCtx, state, dt) {
             } else {
               sceneCtx.groups.buildings.remove(target.mesh);
               target.extraMeshes?.forEach((m) => sceneCtx.groups.decor.remove(m));
-              const tile = state.mapIndex.get(target.tileId);
-              if (tile) tile.buildingId = null;
+
               state.units.forEach((u) => {
                 if (u.assignedBuildingId === target.id) {
                   u.assignedBuildingId = null;

@@ -112,10 +112,12 @@ export function updateObjectives(state) {
   state.objectives.forEach((obj) => {
     if (obj.done) return;
     let current = 0;
-    if (obj.metric === 'food') current = state.resources.food;
-    if (obj.metric === 'economyReady') current = state.buildings.filter((b) => ['farm','lumber','mine'].includes(b.type)).length;
-    if (obj.metric === 'armyUnits') current = state.stats.armyUnits;
+    if (obj.metric === 'uniqueBuildings') {
+        const uniqueTypes = new Set(state.buildings.map(b => b.type));
+        current = uniqueTypes.size;
+    }
     if (obj.metric === 'wonderBuilt') current = state.stats.wonderBuilt;
+
     if (current >= obj.target) {
       obj.done = true;
       for (const [k, v] of Object.entries(obj.reward)) state.resources[k] = (state.resources[k] || 0) + v;
