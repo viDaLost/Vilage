@@ -4,8 +4,9 @@ import { GAME_CONFIG, UNITS, UNIT_MODEL_MAP, UNIT_VISUALS } from '../config.js';
 import { getCapital, buildingCenter, getBuildingWorkerDemand } from './buildings.js';
 import { dist2 } from '../utils/helpers.js';
 import { spawnCollapse, spawnProjectile } from './combat.js';
-import { attachUnitModel } from '../core/assets.js';
-import { getTerrainY } from './terrain.js';
+import { attachUnitModel, playAnim } from '../core/assets.js';
+import { sampleTerrainHeight } from './terrain.js';
+import { sampleTerrain } from './world.js';
 
 let unitId = 1;
 
@@ -218,11 +219,9 @@ export function updateTraining(sceneCtx, state, dt, notify) {
     const current = building.trainQueue[0];
     current.progress += dt;
     if (current.progress >= current.trainTime) {
-      const tile = state.mapIndex.get(building.tileId);
-      const spawnPos = current.type === 'worker'
-        ? (capitalSpawnPoint(state, building.type === 'capital' ? building : getCapital(state), tile) || new THREE.Vector3(tile.pos.x + 2.2, tile.height, tile.pos.z + 0.4))
-        : new THREE.Vector3(tile.pos.x + .8, tile.height, tile.pos.z + .8);
-      const target = current.type === 'worker' ? null : (building.rallyTileId ? state.mapIndex.get(building.rallyTileId)?.pos?.clone() : getCapital(state) ? state.mapIndex.get(getCapital(state).tileId).pos.clone() : null);
+
+      const spawnPos = new THREE.Vector3(building.pos.x + 1.2, building.surfaceY, building.pos.z + 1.2);
+      const target = current.type === worker ? null : getCapital(state) ? getCapital(state).pos.clone() : null;
       const unit = spawnUnit(sceneCtx, state, current.type, spawnPos, target);
       if (!unit.hostile) {
         state.resources.population = Math.min(state.resources.populationCap || 99, (state.resources.population || 0) + 1);
@@ -283,7 +282,7 @@ function damageNearestBuilding(sceneCtx, state, unit, notify) {
       nearest.hp = 0;
     } else {
       sceneCtx.groups.buildings.remove(nearest.mesh);
-      const tile = state.mapIndex.get(nearest.tileId);
+
       if (tile) tile.buildingId = null;
       state.buildings = state.buildings.filter((b) => b.id !== nearest.id);
       notify(`Разрушено здание: ${nearest.type}`);
@@ -337,9 +336,9 @@ function findNearestFreeWorkBuilding(unit, state) {
   return candidates[0] || null;
 }
 
-function workerTaskTarget(unit, state, capitalTile) {
+function workerTaskTarget(unit, state) {
   const building = state.buildings.find((b) => b.id === unit.assignedBuildingId);
-  if (!building) return capitalTile ? capitalTile.pos.clone() : null;
+  if (!building) return null;
   const center = buildingCenter(state, building);
   if (building.type === 'farm') {
     const radius = Math.max(1.05, (building.blockRadius || 0.9) + 0.22);
@@ -392,7 +391,7 @@ export function spawnPointNearBuilding(state, building, slot = 0) {
   return new THREE.Vector3(x, getTerrainY(x, z), z);
 }
 
-function workerNearCapital(unit, state, capital, capitalTile, extraReach = 0.38) {
+function workerNearCapital(unit, state, capital, extraReach = 0.38) {
   if (!capital && !capitalTile) return false;
   if (!capital) return unit.pos.distanceTo(capitalTile.pos) <= 0.55 + extraReach;
   const center = buildingCenter(state, capital);
@@ -408,7 +407,7 @@ function edgeTargetToward(unitPos, buildingPos, radius) {
   return buildingPos.clone().addScaledVector(dir, radius);
 }
 
-function patrolTargetFor(unit, state, capitalTile) {
+function patrolTargetFor(unit, state) {
   const focus = unit.manualTarget || unit.commandTarget || unit.patrolCenter || (capitalTile ? capitalTile.pos : null);
   if (!focus) return null;
   if (unit.manualTarget) return unit.manualTarget.clone();
@@ -417,49 +416,37 @@ function patrolTargetFor(unit, state, capitalTile) {
   return new THREE.Vector3(focus.x + Math.cos(t) * radius, focus.y || 0, focus.z + Math.sin(t) * radius);
 }
 
-function tileAtPosition(state, pos) {
-  let best = null;
-  let bestD = Infinity;
-  for (const tile of state.map) {
-    const dx = pos.x - tile.pos.x;
-    const dz = pos.z - tile.pos.z;
-    const d = dx * dx + dz * dz;
-    if (d < bestD) { bestD = d; best = tile; }
-  }
-  return best;
-}
-
 function keepOutOfWater(unit, state, previousPos) {
-  const tile = tileAtPosition(state, unit.pos);
-  if (tile?.type !== 'water') return;
-  unit.pos.copy(previousPos);
-  const dry = state.map
-    .filter((t) => t.type !== 'water')
-    .sort((a, b) => dist2(unit.pos, a.pos) - dist2(unit.pos, b.pos))[0];
-  if (dry) {
-    const dir = new THREE.Vector3().subVectors(dry.pos, unit.pos);
-    dir.y = 0;
-    if (dir.lengthSq() > 0.0001) unit.pos.addScaledVector(dir.normalize(), 0.12);
-  }
+    const terrain = sampleTerrain(state, unit.pos.x, unit.pos.z);
+    if (terrain.type === 'water') {
+        unit.pos.copy(previousPos);
+        const capital = getCapital(state);
+        if (capital) {
+            const dir = new THREE.Vector3().subVectors(capital.pos, unit.pos);
+            dir.y = 0;
+            if (dir.lengthSq() > 0.0001) unit.pos.addScaledVector(dir.normalize(), 0.12);
+        }
+    }
 }
 
 function keepAwayFromBuildings(unit, state) {
-  for (const building of state.buildings) {
-    const center = buildingCenter(state, building);
-    const radius = (building.blockRadius || 1.0) + (unit.range > 2 ? 0.2 : 0.1);
-    const dx = unit.pos.x - center.x;
-    const dz = unit.pos.z - center.z;
-    const d = Math.hypot(dx, dz) || 0.0001;
-    if (d < radius) {
-      const push = (radius - d) * (unit.hostile ? 1.35 : 0.8);
-      unit.pos.x += (dx / d) * push;
-      unit.pos.z += (dz / d) * push;
-    }
+  for (const b of state.buildings) {
+      const center = buildingCenter(state, b);
+      const dx = unit.pos.x - center.x;
+      const dz = unit.pos.z - center.z;
+      const d = Math.hypot(dx, dz);
+      const r = b.blockRadius || 1.2;
+      if (d < r) {
+          const push = r - d + 0.05;
+          unit.pos.x += (dx / d) * push;
+          unit.pos.z += (dz / d) * push;
+      }
+      }
   }
 }
 
 function computeBuildingReturn(building) {
-  return building.type === 'farm' ? 0.7 + building.level * 0.22 : 0.9 + building.level * 0.25;
+  return 1.0 + (building.level - 1) * 0.4;
 }
 
 function nearestEnemyCamp(unit, state, maxDistance = 8) {
@@ -486,7 +473,7 @@ function damageEnemyCamp(sceneCtx, state, unit, camp, notify) {
     const defenders = camp.faction === 'iron' ? ['brute'] : camp.faction === 'beasts' ? ['wolfRider'] : ['raider','raiderArcher'];
     const type = defenders[Math.floor(Math.random() * defenders.length)];
     const spawned = spawnUnit(sceneCtx, state, type, camp.pos.clone().add(new THREE.Vector3((Math.random()-.5)*1.2, 0, (Math.random()-.5)*1.2)));
-    spawned.commandTarget = getCapital(state) ? state.mapIndex.get(getCapital(state).tileId)?.pos?.clone() : null;
+    spawned.commandTarget = getCapital(state) ? getCapital(state).pos.clone() : null;
   }
   if (camp.hp <= 0) {
     camp.hp = 0;
@@ -514,7 +501,7 @@ function attackUnit(sceneCtx, state, unit, target) {
 export function updateUnits(sceneCtx, state, dt, notify) {
   dt = Math.min(dt, 0.1);
   const capital = getCapital(state);
-  const capitalTile = capital ? state.mapIndex.get(capital.tileId) : null;
+
   assignWorkers(state);
 
   state.enemyCamps.forEach((camp) => { camp.spawnCooldown = Math.max(0, (camp.spawnCooldown || 0) - dt); });
@@ -544,12 +531,12 @@ export function updateUnits(sceneCtx, state, dt, notify) {
         const wallPos = buildingCenter(state, wall);
         targetPos = wallPos;
         if (dist2(unit.pos, wallPos) <= Math.max(unit.range + 1.1, 1.9)) damageNearestBuilding(sceneCtx, state, unit, notify);
-      } else if (capitalTile) {
-        targetPos = capitalTile.pos;
-        if (dist2(unit.pos, capitalTile.pos) <= unit.range + 1.4) damageNearestBuilding(sceneCtx, state, unit, notify);
+      } else if (capital) {
+        targetPos = capital.pos;
+        if (dist2(unit.pos, capital.pos) <= unit.range + 1.4) damageNearestBuilding(sceneCtx, state, unit, notify);
       }
     } else if (unit.type === 'worker') {
-      const capitalPos = capitalTile ? capitalTile.pos.clone() : unit.pos.clone();
+      const capitalPos = unit.pos.clone();
       if (unit.forceJob && !unit.assignedBuildingId) {
         const freeBuilding = findNearestFreeWorkBuilding(unit, state);
         if (freeBuilding) {
@@ -578,7 +565,7 @@ export function updateUnits(sceneCtx, state, dt, notify) {
           targetPos = capitalPos;
         }
       } else if (assignedBuilding.type === 'farm') {
-        const node = workerTaskTarget(unit, state, capitalTile);
+        const node = workerTaskTarget(unit, state);
         const farmRadius = Math.max(1.02, (assignedBuilding.blockRadius || 0.9) + 0.18);
         targetPos = node;
         unit.gatherCooldown -= dt;
@@ -591,7 +578,9 @@ export function updateUnits(sceneCtx, state, dt, notify) {
           }
           const center = buildingCenter(state, assignedBuilding);
           const settle = edgeTargetToward(unit.pos, center, farmRadius);
-          unit.pos.lerp(settle, Math.min(1, dt * 4.5));
+          const lerpFactor = Math.min(1, dt * 4.5);
+          unit.pos.x += (settle.x - unit.pos.x) * lerpFactor;
+          unit.pos.z += (settle.z - unit.pos.z) * lerpFactor;
           moved = false;
         }
       } else {
@@ -610,7 +599,7 @@ export function updateUnits(sceneCtx, state, dt, notify) {
           } else {
             targetPos = capitalPos;
           }
-          if (workerNearCapital(unit, state, capital, capitalTile, 0.42)) {
+          if (workerNearBuilding(unit, state, capital, 0.42)) {
             state.resources[assignedBuilding.type === 'mine' ? 'stone' : 'wood'] += computeBuildingReturn(assignedBuilding);
             if (assignedBuilding.type === 'mine') state.resources.gold += 0.12 + assignedBuilding.level * 0.08;
             unit.taskPhase = 'toBuilding';
@@ -621,7 +610,7 @@ export function updateUnits(sceneCtx, state, dt, notify) {
       if (unit.manualTarget) {
         targetPos = unit.manualTarget.clone();
       } else {
-      const { best: camp, bestD: campD } = nearestEnemyCamp(unit, state, unit.range > 2 ? 9 : 7);
+        const { best: camp, bestD: campD } = nearestEnemyCamp(unit, state, unit.range > 2 ? 9 : 7);
       const { best: enemy, bestD } = nearestTarget(unit, state, (u) => u.hostile, unit.range > 2 ? 10 : 8);
       if (enemy) {
         targetPos = enemy.pos;
@@ -631,10 +620,10 @@ export function updateUnits(sceneCtx, state, dt, notify) {
         targetPos = camp.pos;
         if (campD <= Math.max(1.4, unit.range + 0.7) && unit.attackCooldown <= 0) damageEnemyCamp(sceneCtx, state, unit, camp, notify);
       } else {
-        targetPos = patrolTargetFor(unit, state, capitalTile);
-      }
+        targetPos = patrolTargetFor(unit, state);
       }
     }
+  }
 
     if (targetPos && unit.manualTarget && unit.pos.distanceTo(targetPos) <= 0.18) {
       unit.manualTarget = null;
@@ -703,12 +692,17 @@ export function autoSpawnWorkers(sceneCtx, state, dt, notify) {
   if (state.resources.food < 18 || state.resources.stability < 40) return;
   const capital = getCapital(state);
   if (!capital) return;
-  const tile = state.mapIndex.get(capital.tileId);
+
   if (!tile) return;
   state.resources.population += 1;
   state.resources.food = Math.max(0, state.resources.food - 6);
-  const spawnPos = capitalSpawnPoint(state, capital, tile);
+  const spawnPos = new THREE.Vector3(capital.pos.x + 1.2, capital.surfaceY, capital.pos.z + 1.2);
   if (!spawnPos) return;
   spawnUnit(sceneCtx, state, 'worker', spawnPos, null);
   notify('В столице вырос новый рабочий для экономики');
+}
+
+function workerNearBuilding(unit, state, building, tolerance) {
+  if (!building) return false;
+  return dist2(unit.pos, building.pos) <= (building.blockRadius || 1.2) + tolerance;
 }

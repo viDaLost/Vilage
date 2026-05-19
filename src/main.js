@@ -12,10 +12,11 @@ import * as THREE from 'three';
 import { GAME_CONFIG, BUILDINGS, UNITS } from './config.js';
 import { createInitialState } from './state.js';
 import { createScene } from './core/scene.js';
-import { generateWorld, getNeighbors, isTileInsideTerritory } from './systems/world.js';
-import { getTerrainY, updateTerrainVisuals, buildTerrain } from './systems/terrain.js';
-import { renderTiles, renderRoads, clearDecorOnTile, populateDecorModels, updateTerritoryOverlay } from './systems/renderWorld.js';
+import { generateWorld, isTileInsideTerritory, sampleTerrain } from './systems/world.js';
+import { updateTerrainVisuals, buildTerrain, sampleTerrainHeight } from './systems/terrain.js';
+import { renderTiles, renderRoads, populateDecorModels, updateTerritoryOverlay } from './systems/renderWorld.js';
 import { setupHud, updateHud } from './ui/hud.js';
+import { drawMinimap } from './ui/minimap.js';
 import { notify } from './ui/notifications.js';
 import { openBuildMenu, openQuickBuildMenu, openResearchMenu, openTrainMenu, bindDrawerClose, closeDrawer, openBuildingMenu } from './ui/drawer.js';
 import { setupModal, openModal, closeModal } from './ui/modal.js';
@@ -38,13 +39,7 @@ let lastTime = performance.now();
 let constructionDustTimer = 0;
 let emergencyReleased = false;
 
-function syncTileOverlayHeights() {
-  state.map.forEach((tile) => {
-    const y = getTerrainY(tile.pos.x, tile.pos.z);
-    tile.surfaceY = y;
-    if (tile.mesh) tile.mesh.position.y = y + 0.02;
-  });
-}
+function syncTileOverlayHeights() {} // removed since we don't have hex overlays
 
 function emergencyRelease() {
   if (emergencyReleased) return;
@@ -52,8 +47,8 @@ function emergencyRelease() {
   const ls = $('#loading-screen');
   if (ls) ls.style.display = 'none';
   state.timeScale = GAME_CONFIG.simBaseSpeed;
-  try { showRules(); } catch {}
-  try { animate(); } catch {}
+  try { showRules(); } catch (e) {}
+  try { animate(); } catch (e) {}
 }
 
 function setLoading(percent, text) {
@@ -127,43 +122,40 @@ setTimeout(() => {
 }, 2500);
 
 async function spawnCapital() {
-  const center = state.map
-    .filter((t) => ['grass', 'fertile', 'sacred'].includes(t.type))
-    .sort((a, b) => Math.hypot(a.pos.x, a.pos.z) - Math.hypot(b.pos.x, b.pos.z))[0]
-    || state.map.filter((t) => t.type !== 'water').sort((a, b) => Math.hypot(a.pos.x, a.pos.z) - Math.hypot(b.pos.x, b.pos.z))[0];
-  const job = { type: 'capital', tileId: center.id, progress: 0, buildTime: 0, mode: 'new' };
+  const center = { x: 0, z: 0 };
+  const job = { type: 'capital', x: center.x, z: center.z, progress: 0, buildTime: 0, mode: 'new' };
   const capital = await finishConstruction(sceneCtx, state, job);
   state.capitalId = capital.id;
-  center.buildingId = capital.id;
   state.resources.population = 4;
   state.resources.workers = 0;
   capital.level = 1;
 
-  const neighbors = getNeighbors(state, center).filter((t) => t.type !== 'water');
-  const outerRing = [];
-  neighbors.forEach((n) => {
-    getNeighbors(state, n).forEach((candidate) => {
-      if (!candidate || candidate.id === center.id || candidate.buildingId || candidate.type === 'water') return;
-      if (!outerRing.some((x) => x.id === candidate.id)) outerRing.push(candidate);
-    });
-  });
-
   const used = new Set();
-  const pickStarterTile = (allowedTypes) => {
-    let tile = outerRing.find((t) => allowedTypes.includes(t.type) && !t.buildingId && !used.has(t.id));
-    if (!tile) tile = outerRing.find((t) => !t.buildingId && !used.has(t.id));
-    if (tile) used.add(tile.id);
-    return tile;
+  const pickStarter = (type, allowedTypes) => {
+    // very hacky initial placement
+    for (let r = 5.0; r < 25.0; r += 2.0) {
+        for (let angle = 0; angle < Math.PI * 2; angle += Math.PI / 4) {
+            const px = Math.cos(angle) * r;
+            const pz = Math.sin(angle) * r;
+            if (canPlaceBuilding(state, type, px, pz)) {
+                const terrain = sampleTerrain(state, px, pz);
+                if (allowedTypes.includes(terrain.type)) {
+                    return { x: px, z: pz };
+                }
+            }
+        }
+    }
+    return null;
   };
 
   const starter = [
-    ['farm', pickStarterTile(['grass', 'fertile', 'river'])],
-    ['lumber', pickStarterTile(['forest', 'grass'])],
-    ['mine', pickStarterTile(['hill', 'rock'])],
+    ['farm', pickStarter('farm', ['grass', 'fertile', 'river'])],
+    ['lumber', pickStarter('lumber', ['forest', 'grass'])],
+    ['mine', pickStarter('mine', ['hill', 'rock'])],
   ];
   for (const [type, tile] of starter) {
     if (!tile) continue;
-    const build = placeConstruction(state, type, tile);
+    const build = placeConstruction(state, type, tile.x, tile.z);
     build.progress = build.buildTime;
   }
   // Rebuild terrain after reserving starter pads, so the first farms/mines are grounded from frame one.
@@ -177,7 +169,7 @@ async function spawnCapital() {
   }
 
   finishedBuildings.forEach((building) => {
-    const tile = state.mapIndex.get(building.tileId);
+    const tile = null;
     if (tile) connectRoadsForTile(tile);
   });
 
@@ -199,19 +191,11 @@ async function spawnCapital() {
   state.resources.stone = Math.max(state.resources.stone, 70);
 }
 
-function createRoadNetworkFromCapital() {
-  const capital = getCapital(state);
-  if (!capital) return;
-  const center = state.mapIndex.get(capital.tileId);
-  if (!center) return;
-  getNeighbors(state, center)
-    .filter((tile) => tile?.buildingId)
-    .forEach((tile) => addRoad(center.id, tile.id));
-}
+function createRoadNetworkFromCapital() {}
 
-async function makeCampMesh(tile, faction) {
+async function makeCampMesh(px, pz, faction) {
   const mesh = new THREE.Group();
-  const baseY = getTerrainY(tile.pos.x, tile.pos.z);
+  const baseY = sampleTerrainHeight(state, px, pz);
   const fallback = new THREE.Mesh(new THREE.CylinderGeometry(.76, .94, .42, 6), new THREE.MeshStandardMaterial({ color: faction === 'iron' ? 0x666d76 : faction === 'beasts' ? 0x5c3c18 : 0x7a1711, roughness: 1 }));
   fallback.position.y = .21;
   mesh.add(fallback);
@@ -221,58 +205,48 @@ async function makeCampMesh(tile, faction) {
     campModel.scale.setScalar(faction === 'iron' ? 0.95 : 0.9);
     groundScene(campModel, 0.02);
     mesh.add(campModel);
-  } catch {}
-  const fire = new THREE.Mesh(new THREE.OctahedronGeometry(.19), new THREE.MeshStandardMaterial({ color: 0xff9345, emissive: 0xff7836, emissiveIntensity: 1.1 }));
-  fire.position.y = .78;
-  mesh.add(fire);
-  mesh.position.set(tile.pos.x, baseY, tile.pos.z);
+        } catch (e) { console.error('Error loading camp mesh', e); }
   return mesh;
 }
 
+
 async function spawnEnemyCamps() {
-  const farTiles = state.map.filter((t) => Math.hypot(t.pos.x, t.pos.z) > state.territoryRadius + 10 && t.type !== 'water' && t.type !== 'river');
-  farTiles.sort(() => Math.random() - .5);
+  const camps = [];
+  for (let i = 0; i < GAME_CONFIG.enemyCampCount; i++) {
+    for (let j = 0; j < 50; j++) {
+        const angle = Math.random() * Math.PI * 2;
+        const radius = state.territoryRadius + 20 + Math.random() * 20;
+        const px = Math.cos(angle) * radius;
+        const pz = Math.sin(angle) * radius;
+        const terrain = sampleTerrain(state, px, pz);
+        if (terrain.type !== 'water' && terrain.type !== 'river' && terrain.elevation > 0) {
+            camps.push({ px, pz });
+            break;
+        }
+    }
+  }
+
   const factions = ['clans', 'iron', 'beasts'];
-  state.enemyCamps = await Promise.all(farTiles.slice(0, GAME_CONFIG.enemyCampCount).map((tile, i) => {
+  state.enemyCamps = await Promise.all(camps.map((camp, i) => {
     const faction = factions[i % factions.length];
-    return makeCampMesh(tile, faction).then((mesh) => {
+    return makeCampMesh(camp.px, camp.pz, faction).then((mesh) => {
       sceneCtx.groups.enemyCamps.add(mesh);
       const hp = 120 + (faction === 'iron' ? 30 : 0);
-      return { id: `camp-${i}`, tileId: tile.id, hp, maxHp: hp, pos: mesh.position.clone(), mesh, faction, spawnCooldown: 5, hitFlash: 0 };
+      return { id: `camp-${i}`, hp, maxHp: hp, pos: mesh.position.clone(), mesh, faction, spawnCooldown: 5, hitFlash: 0 };
     });
   }));
 }
 
-function addRoad(aId, bId) {
-  if (!aId || !bId || aId === bId) return false;
-  const key = [aId, bId].sort().join('|');
-  if (!state.roads) state.roads = [];
-  if (state.roads.some((r) => [r.a, r.b].sort().join('|') === key)) return false;
-  const a = state.mapIndex.get(aId);
-  const b = state.mapIndex.get(bId);
-  if (!a || !b) return false;
-  a.roadLinks?.add?.(bId);
-  b.roadLinks?.add?.(aId);
-  state.roads.push({ a: aId, b: bId });
-  state.resources.roads = state.roads.length;
-  return true;
-}
+function addRoad(aId, bId) { return false; }
 
-function removeRoadsForTile(tileId) {
-  if (!tileId || !state.roads?.length) return false;
-  const before = state.roads.length;
-  state.roads = state.roads.filter((road) => road.a !== tileId && road.b !== tileId);
-  state.map.forEach((tile) => tile.roadLinks?.delete?.(tileId));
-  const tile = state.mapIndex.get(tileId);
-  tile?.roadLinks?.clear?.();
-  state.resources.roads = state.roads.length;
-  return state.roads.length !== before;
-}
+function removeRoadsForTile(tileId) { return false; }
 
 async function tryPlaceBuilding(tile, forcedType = null) {
+  if (!tile || !tile.pos) return;
+  const px = tile.pos.x; const pz = tile.pos.z;
   const type = forcedType || state.selectedBuildType;
   if (!type) return;
-  if (!canPlaceBuilding(state, type, tile)) {
+  if (!canPlaceBuilding(state, type, px, pz)) {
     notify('Эту постройку нельзя разместить на выбранной клетке');
     return;
   }
@@ -282,8 +256,8 @@ async function tryPlaceBuilding(tile, forcedType = null) {
     return;
   }
   payCost(state.resources, cfg.cost);
-  clearDecorOnTile(sceneCtx, tile);
-  const job = placeConstruction(state, type, tile);
+
+  const job = placeConstruction(state, type, px, pz);
   state.lastQuickBuildType = type;
   notify(`Начато строительство: ${cfg.name}`);
   closeDrawer();
@@ -324,8 +298,8 @@ function openTappedBuildingMenu(tile, building) {
     },
     demolish: () => {
       destroyBuilding(sceneCtx, state, building);
-      removeRoadsForTile(tile.id);
-      spawnCollapse(sceneCtx, tile.pos.clone().setY((tile.surfaceY ?? getTerrainY(tile.pos.x, tile.pos.z)) + .5));
+
+      spawnCollapse(sceneCtx, building.pos.clone().setY(building.surfaceY + 0.5));
       notify(`Постройка снесена: ${BUILDINGS[building.type].name}`);
       closeDrawer();
       updateHud(state);
@@ -340,10 +314,10 @@ function openTappedBuildingMenu(tile, building) {
 function onTileSelected(tile) {
   state.selected = { kind: 'tile', ref: tile };
   highlightSelection();
-  const building = getBuildingOnTile(state, tile);
+  const building = tile.buildingId ? state.buildings.find(b => b.id === tile.buildingId) : null;
   if (state.placementMode?.type === 'rally') {
     const source = getBuildingById(state, state.placementMode.buildingId);
-    if (source) { source.rallyTileId = tile.id; notify(`Точка сбора назначена для ${BUILDINGS[source.type].name}`); }
+    if (source) { source.rallyPos = tile.pos.clone(); notify(`Точка сбора назначена для ${BUILDINGS[source.type].name}`); }
     state.placementMode = null;
     return;
   }
@@ -353,7 +327,7 @@ function onTileSelected(tile) {
       return;
     }
     state.selectedUnits.forEach((unit) => {
-      const targetPoint = new THREE.Vector3(tile.pos.x, getTerrainY(tile.pos.x, tile.pos.z), tile.pos.z);
+      const targetPoint = new THREE.Vector3(tile.pos.x, sampleTerrainHeight.bind(null, state)(tile.pos.x, tile.pos.z), tile.pos.z);
       unit.manualTarget = targetPoint.clone();
       unit.commandTarget = targetPoint.clone();
       unit.patrolCenter = targetPoint.clone();
@@ -378,17 +352,18 @@ function onTileSelected(tile) {
 function onTileDoubleSelected(tile) {
   state.selected = { kind: 'tile', ref: tile };
   highlightSelection();
-  const building = getBuildingOnTile(state, tile);
+  const building = tile.buildingId ? state.buildings.find(b => b.id === tile.buildingId) : null;
   if (building) {
     openTappedBuildingMenu(tile, building);
     updateSelection(state);
     return;
   }
-  if (!isTileInsideTerritory(state, tile) || tile.type === 'water' || tile.type === 'river') {
+  const terrain = sampleTerrain(state, tile.pos.x, tile.pos.z);
+  if (!isTileInsideTerritory(state, tile.pos.x, tile.pos.z) || terrain.type === 'water' || terrain.type === 'river') {
     notify('Эта сота пока не подходит для строительства');
     return;
   }
-  if (state.lastQuickBuildType && canPlaceBuilding(state, state.lastQuickBuildType, tile)) {
+  if (state.lastQuickBuildType && canPlaceBuilding(state, state.lastQuickBuildType, tile.pos.x, tile.pos.z)) {
     tryPlaceBuilding(tile, state.lastQuickBuildType);
     return;
   }
@@ -425,12 +400,12 @@ function ensureUnitActionMenu() {
   menu.id = 'unit-action-menu';
   menu.className = 'glass-panel';
   menu.innerHTML = `
-    <div class="panel-title">Юнит</div>
-    <button class="card-btn" data-unit-action="move">Следовать на место</button>
-    <button class="card-btn" data-unit-action="work">Найти работу</button>
+    <div class=panel-title>Юнит</div>
+    <button class=card-btn data-unit-action=move>Следовать на место</button>
+    <button class=card-btn data-unit-action=work>Найти работу</button>
   `;
   document.getElementById('ui-root').appendChild(menu);
-  menu.querySelector('[data-unit-action="move"]').onclick = () => {
+  menu.querySelector('[data-unit-action=move]').onclick = () => {
     const unit = state.selected?.ref;
     if (!unit || unit.hostile) return;
     state.selectedUnits = [unit];
@@ -439,7 +414,7 @@ function ensureUnitActionMenu() {
     closeUnitActionMenu();
     updateSelection(state);
   };
-  menu.querySelector('[data-unit-action="work"]').onclick = () => {
+  menu.querySelector('[data-unit-action=work]').onclick = () => {
     const unit = state.selected?.ref;
     if (!unit || unit.hostile) return;
     unit.forceJob = true;
@@ -483,7 +458,7 @@ function handleAction(action) {
   if (action === 'focus-capital') {
     const capital = getBuildingById(state, state.capitalId);
     if (!capital) return;
-    const tile = state.mapIndex.get(capital.tileId);
+    const tile = null;
     sceneCtx.controls.target.set(tile.pos.x, tile.height, tile.pos.z);
     sceneCtx.camera.position.set(tile.pos.x + 18, tile.height + 19, tile.pos.z + 14);
     closeDrawer();
@@ -539,16 +514,16 @@ function bindTrainButtons() {
 
 function showRules() {
   openModal(
-    'Летопись правителя',
-    'Веб-RTS с живым временем и двойным тапом по сотам',
+    'Обучение правителя',
+    'Непрерывная RTS стратегия',
     `
-      <p><strong>Главная идея:</strong> ресурсы, строительство, обучение войск, враги, день и погода обновляются непрерывно. Игра течёт сама, без кнопок ускорения и паузы.</p>
-      <p><strong>Управление:</strong> один тап выбирает соту, юнита или здание. У юнита теперь есть меню действий: можно отправить его в точку или назначить на работу. <strong>Двойной тап по пустой соте</strong> ставит последнюю постройку либо открывает нижнюю панель быстрой стройки.</p>
-      <p><strong>Подсказки стройки:</strong> над строящейся сотой появляется обратный отсчёт и пыль работ. Когда здание строится, декорации на этой соте убираются.</p>
-      <p><strong>Смысл партии:</strong> расширяй границы, удерживай еду и порядок, обучай войска и переживай всё более сложные набеги разных фракций. Цель — провести державу от основания к золотому веку.</p>
+      <p><strong>Цель:</strong> Разрушить базу врага или построить все типы зданий включая Чудо Света.</p>
+      <p><strong>Управление:</strong> Левый клик для взаимодействия с картой и зданиями. Зажатие мыши или скролл — движение камеры и отдаление.</p>
+      <p><strong>Экономика:</strong> Рабочие сами добывают ресурсы из леса и шахт. Строй больше амбаров и ферм, чтобы прокормить растущее население.</p>
+      <p><strong>Враги:</strong> ИИ строит базу параллельно с вами и периодически отправляет отряды. Стройте стены и башни, чтобы защитить границы, и нанимайте армию в казармах.</p>
     `,
     [
-      { label: 'Начать', primary: true, onClick: closeModal },
+      { label: 'Начать игру', primary: true, onClick: closeModal },
       { label: 'Стереть сохранение', onClick: () => { clearSave(); closeModal(); notify('Локальное сохранение очищено'); } },
     ]
   );
@@ -566,7 +541,7 @@ async function showGhost(type) {
   try {
     const model = await createGhostBuildingMesh(type);
     if (model) ghostGroup.add(model);
-  } catch {}
+  } catch (e) {}
   ghostMesh = ghostGroup;
   sceneCtx.groups.ghosts.add(ghostMesh);
   sceneCtx.renderer.domElement.addEventListener('pointermove', pointerGhostMove);
@@ -579,13 +554,6 @@ function clearBuildPreview() {
 
 function refreshBuildPreview(type) {
   clearBuildPreview();
-  state.map.filter((tile) => canPlaceBuilding(state, type, tile)).slice(0, 220).forEach((tile) => {
-    const ring = new THREE.Mesh(new THREE.RingGeometry(0.42, 0.52, 16), new THREE.MeshBasicMaterial({ color: 0xb7ff8a, transparent: true, opacity: 0.2, side: THREE.DoubleSide }));
-    ring.rotation.x = -Math.PI / 2;
-    ring.position.set(tile.pos.x, getTerrainY(tile.pos.x, tile.pos.z) + 0.055, tile.pos.z);
-    ring.userData.preview = true;
-    sceneCtx.groups.ghosts.add(ring);
-  });
 }
 
 function pointerGhostMove(e) {
@@ -594,13 +562,15 @@ function pointerGhostMove(e) {
   const raycaster = new THREE.Raycaster();
   const pointer = new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
   raycaster.setFromCamera(pointer, sceneCtx.camera);
-  const hits = raycaster.intersectObjects(sceneCtx.groups.overlays.children, false);
-  if (!hits.length) return;
-  const hit = hits.find((h) => h.object?.userData?.tileId);
-  const tile = hit ? state.mapIndex.get(hit.object.userData.tileId) : null;
-  if (!tile) return;
-  ghostMesh.position.set(tile.pos.x, getTerrainY(tile.pos.x, tile.pos.z) + .12, tile.pos.z);
-  const ok = canPlaceBuilding(state, state.selectedBuildType, tile);
+  const hits = raycaster.intersectObject(sceneCtx.groups.tiles, true);
+  const terrainHit = hits.find(h => h.object.name === 'terrain-mesh');
+
+  if (!terrainHit) return;
+  const px = terrainHit.point.x;
+  const pz = terrainHit.point.z;
+
+  ghostMesh.position.set(px, terrainHit.point.y, pz);
+  const ok = canPlaceBuilding(state, state.selectedBuildType, px, pz);
   ghostMesh.traverse((obj) => {
     if (obj.isMesh && obj.material) {
       const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
@@ -625,7 +595,7 @@ async function processFinishedConstruction() {
   for (const job of done) {
     const entity = await finishConstruction(sceneCtx, state, job);
     if (entity) {
-      const tile = state.mapIndex.get(entity.tileId);
+      const tile = null;
       if (tile) roadsChanged = connectRoadsForTile(tile) || roadsChanged;
       notify(job.mode === 'upgrade' ? `Улучшено: ${BUILDINGS[entity.type].name} ур. ${entity.level}` : `Построено: ${BUILDINGS[job.type].name}`);
     }
@@ -637,26 +607,14 @@ async function processFinishedConstruction() {
   }
 }
 
-function connectRoadsForTile(tile) {
-  if (!tile?.buildingId) return false;
-  let changed = false;
-  const neighbors = getNeighbors(state, tile).filter((n) => n?.buildingId);
-  const capital = getCapital(state);
-  if (capital) {
-    const capitalTile = state.mapIndex.get(capital.tileId);
-    if (capitalTile && capitalTile.id !== tile.id && Math.hypot(tile.pos.x - capitalTile.pos.x, tile.pos.z - capitalTile.pos.z) <= GAME_CONFIG.hexSize * 5.8) {
-      changed = addRoad(tile.id, capitalTile.id) || changed;
-    }
-  }
-  neighbors.forEach((n) => { changed = addRoad(tile.id, n.id) || changed; });
-  return changed;
-}
+function connectRoadsForTile(tile) { return false; }
 
 function updateDayNightVisual(dt) {
   const t = (state.dayTime % GAME_CONFIG.dayDuration) / GAME_CONFIG.dayDuration;
   const ang = t * Math.PI * 2;
   sceneCtx.sun.position.set(Math.cos(ang) * 40, Math.max(8, Math.sin(ang) * 34), Math.sin(ang) * 20 - 8);
-  const lightMul = { clear: 1, rain: .92, mist: .8, dust: .84 }[state.weather];
+  const weatherKey = state.weather || 'clear';
+  const lightMul = { clear: 1, rain: .92, mist: .8, dust: .84, snow: .9 }[weatherKey] || 1;
   sceneCtx.sun.intensity = clamp(Math.sin(ang) * 1.15 + 1.28, 1.0, 2.6) * lightMul;
   sceneCtx.hemi.intensity = 1.05 + sceneCtx.sun.intensity * .4;
   sceneCtx.ambient.intensity = .68 + sceneCtx.sun.intensity * .12;
@@ -678,8 +636,6 @@ function updateDayNightVisual(dt) {
     } else {
       b.mesh.scale.setScalar(1);
     }
-  });
-}
 
 function maybeAutoSave(dt) {
   state.autosaveTimer += dt;
@@ -691,17 +647,23 @@ function maybeAutoSave(dt) {
 function checkStateMilestones() {
   if (state.gameEnded) return;
   const capital = getCapital(state);
-  if (!capital || state.resources.stability <= 0 || capital.hp <= 0) {
+  if (!capital || capital.hp <= 0 || state.units.filter(u => u.type === 'worker' && !u.dead).length === 0) {
     state.gameEnded = true;
     state.paused = true;
     state.timeScale = 0;
-    openModal('Держава пала', 'Власть рассыпалась', '<p>Нужно удерживать порядок, пищу и защиту. Попробуй начать снова и раньше строить амбары, храмы, башни и улучшать столицу.</p>', [{ label: 'Понятно', primary: true, onClick: closeModal }]);
+    openModal('Держава пала', 'Власть рассыпалась', '<p>Столица была разрушена или все рабочие погибли. Империя пала под натиском врагов.</p>', [{ label: 'Понятно', primary: true, onClick: closeModal }]);
     return;
   }
+
   const allObjectives = state.objectives.every((o) => o.done);
-  if (allObjectives && state.era >= 2 && state.resources.stability >= 65) {
+  const enemyDefeated = state.enemyCamps.length === 0 && state.units.filter(u => u.hostile && !u.dead).length === 0 && state.era > 0;
+
+  if (enemyDefeated) {
+      state.gameEnded = true;
+      openModal('Военная победа', 'Враг уничтожен', '<p>Все вражеские базы и юниты уничтожены! Ваша империя будет править вечно.</p>', [{ label: 'Продолжить', primary: true, onClick: closeModal }]);
+  } else if (allObjectives) {
     state.gameEnded = true;
-    openModal('Золотой век', 'Империя добилась величия', '<p>Ты выполнил стратегические цели, пережил набеги и вывел державу в зрелую эпоху. Можно продолжать строить или начать новую партию.</p>', [{ label: 'Продолжить', primary: true, onClick: closeModal }]);
+    openModal('Экономическая победа', 'Золотой век', '<p>Ты выполнил все строительные квесты и возвел Чудо Света. Империя достигла небывалого величия.</p>', [{ label: 'Продолжить', primary: true, onClick: closeModal }]);
   }
 }
 
@@ -710,8 +672,6 @@ function refreshConstructionOverlays() {
   if (!wrap) return;
   wrap.innerHTML = '';
   state.construction.forEach((job) => {
-    const tile = state.mapIndex.get(job.tileId);
-    if (!tile) return;
     const el = document.createElement('div');
     el.className = 'construction-timer';
     el.dataset.jobId = job.id;
@@ -721,15 +681,13 @@ function refreshConstructionOverlays() {
 }
 
 function updateConstructionOverlays() {
-  const wrap = $('#construction-overlays');
+  const wrap = document.getElementById('construction-overlays');
   if (!wrap) return;
   if (wrap.children.length !== state.construction.length) refreshConstructionOverlays();
   state.construction.forEach((job) => {
-    const tile = state.mapIndex.get(job.tileId);
-    const el = wrap.querySelector(`[data-job-id="${job.id}"]`);
-    if (!tile || !el) return;
-    const world = tile.pos.clone();
-    world.y = (tile.surfaceY ?? getTerrainY(tile.pos.x, tile.pos.z)) + 2.7;
+    const el = wrap.querySelector(`[data-job-id=${job.id}]`);
+    if (!el) return;
+    const world = new THREE.Vector3(job.x, sampleTerrainHeight(state, job.x, job.z) + 2.7, job.z);
     world.project(sceneCtx.camera);
     const x = (world.x * .5 + .5) * innerWidth;
     const y = (world.y * -.5 + .5) * innerHeight;
@@ -758,8 +716,7 @@ function updateHealthOverlays() {
   const active = new Set();
   const items = [
     ...state.buildings.map((b) => {
-      const tile = state.mapIndex.get(b.tileId);
-      return { id: `b-${b.id}`, hp: b.hp, maxHp: b.maxHp, pos: tile?.pos?.clone().setY((tile.surfaceY ?? getTerrainY(tile.pos.x, tile.pos.z)) + 2.2) };
+      return { id: `b-${b.id}`, hp: b.hp, maxHp: b.maxHp, pos: new THREE.Vector3(b.pos.x, b.surfaceY + 2.2, b.pos.z) };
     }),
     ...state.units.map((u) => ({ id: `u-${u.id}`, hp: u.hp, maxHp: u.maxHp, pos: u.pos.clone().setY(u.pos.y + 2.4) })),
     ...state.enemyCamps.map((c) => ({ id: `c-${c.id}`, hp: c.hp, maxHp: c.maxHp, pos: c.pos.clone().setY((c.pos.y || 0) + 2.8) }))
@@ -791,11 +748,10 @@ function spawnConstructionDust(dt) {
   if (constructionDustTimer < 0.18) return;
   constructionDustTimer = 0;
   state.construction.forEach((job) => {
-    const tile = state.mapIndex.get(job.tileId);
-    if (!tile) return;
     for (let i = 0; i < 2; i++) {
       const dust = new THREE.Mesh(new THREE.SphereGeometry(.08 + Math.random() * .05, 5, 5), new THREE.MeshBasicMaterial({ color: 0xb79862, transparent: true, opacity: .42 }));
-      dust.position.set(tile.pos.x + (Math.random() - .5) * .9, tile.height + .38 + Math.random() * .35, tile.pos.z + (Math.random() - .5) * .9);
+      const h = sampleTerrainHeight(state, job.x, job.z);
+      dust.position.set(job.x + (Math.random() - .5) * .9, h + .38 + Math.random() * .35, job.z + (Math.random() - .5) * .9);
       sceneCtx.groups.effects.add(dust);
       sceneCtx.effectBursts.push({
         id: `dust-${performance.now()}-${Math.random()}`,
@@ -845,16 +801,28 @@ function maybeSaveGame() {
   saveGame(state);
 }
 
+let logicAccumulator = 0;
+const LOGIC_TICK = 0.05; // 20 TPS
+
 async function animate(now = performance.now()) {
   requestAnimationFrame(animate);
-  const rawDt = Math.min(.05, (now - lastTime) / 1000);
+  const rawDt = Math.min(.1, (now - lastTime) / 1000);
   lastTime = now;
-  const dt = rawDt * state.timeScale;
 
   if (!state.paused && state.timeScale > 0) {
-    await stepSimulation(dt);
-    updateSelection(state);
-    updateHud(state);
+      logicAccumulator += rawDt * state.timeScale;
+      while(logicAccumulator >= LOGIC_TICK) {
+          await stepSimulation(LOGIC_TICK);
+          logicAccumulator -= LOGIC_TICK;
+      }
+
+      updateSelection(state);
+      updateHud(state);
+
+      // Update minimap only occasionally to save frame time
+      if (Math.random() < 0.1) {
+          drawMinimap(state);
+      }
   }
 
   updateConstructionOverlays();
@@ -870,6 +838,6 @@ bootstrap().catch((err) => {
   try {
     $('#loading-text').textContent = 'Мир запущен в безопасном режиме';
     notify('Часть моделей отключена для стабильного запуска');
-  } catch {}
+  } catch (e) {}
   emergencyRelease();
 });

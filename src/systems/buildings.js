@@ -1,7 +1,9 @@
+import { sampleTerrainHeight } from './terrain.js';
+import { sampleTerrain } from './world.js';
 import * as THREE from 'three';
 import { BUILDINGS } from '../config.js';
 import { loadBuildingModel, makeFallbackMesh, loadDecorModel, groundScene } from '../core/assets.js';
-import { getNeighbors, isTileInsideTerritory } from './world.js';
+
 import { clearDecorOnTile, sampleTileSurfaceY } from './renderWorld.js';
 
 let buildingId = 1;
@@ -65,29 +67,25 @@ export function getUpgradeTime(type, nextLevel) {
   return Math.round((BUILDINGS[type].baseBuildTime || 12) * (0.85 + nextLevel * 0.28));
 }
 
-export function canPlaceBuilding(state, type, tile) {
+export function canPlaceBuilding(state, type, x, z) {
   const cfg = BUILDINGS[type];
-  if (!cfg || !tile) return false;
-  if (!isTileInsideTerritory(state, tile)) return false;
-  if (tile.buildingId) return false;
-  if (tile.type === 'water') return false;
+  if (!cfg) return false;
+  if (Math.hypot(x, z) > state.territoryRadius) return false;
+
+  const terrain = sampleTerrain(state, x, z);
+  if (terrain.type === 'water') return false;
 
   // Rock is only safe for mines, temples/towers, and late prestige projects. Everything else needs flatter land.
   const rockAllowed = ['mine', 'tower', 'temple', 'wonder'].includes(type);
-  if (tile.type === 'rock' && !rockAllowed) return false;
-  if (type === 'mine' && tile.type !== 'hill' && tile.type !== 'rock') return false;
-  if (type === 'harbor') {
-    const touchesWater = getNeighbors(state, tile).some((n) => n.type === 'water');
-    if (tile.type !== 'river' || !touchesWater) return false;
-  }
+  if (terrain.type === 'rock' && !rockAllowed) return false;
+  if (type === 'mine' && terrain.type !== 'hill' && terrain.type !== 'rock') return false;
+  if (type === 'harbor' && terrain.type !== 'river') return false;
 
-  if (cfg.minEra != null && state.era < cfg.minEra) return false;
-  if (type === 'barracks' && !state.buildings.some((b) => b.type === 'lumber')) return false;
-  if (type === 'market' && !state.buildings.some((b) => b.type === 'farm')) return false;
-  if (type === 'temple' && !state.buildings.some((b) => b.type === 'mine')) return false;
-  if (type === 'academy' && !state.buildings.some((b) => b.type === 'market')) return false;
-  if (cfg.terrain && !cfg.terrain.includes(tile.type)) return false;
-  if (type === 'wonder' && state.buildings.some((b) => b.type === 'wonder')) return false;
+  // Check collision with other buildings
+  const r = 1.0 + (type === 'capital' ? 1.2 : 0);
+  for (const b of state.buildings) {
+      if (Math.hypot(b.pos.x - x, b.pos.z - z) < r + b.blockRadius) return false;
+  }
 
   return true;
 }
@@ -116,14 +114,13 @@ export function hasCost(resources, cost) {
   return Object.entries(cost).every(([k, v]) => (resources[k] || 0) >= v);
 }
 
-export function placeConstruction(state, type, tile) {
+export function placeConstruction(state, type, x, z) {
   const cfg = BUILDINGS[type];
   const id = `c-${buildingId++}`;
   const job = {
-    id, type, tileId: tile.id, progress: 0, buildTime: cfg.baseBuildTime, mode: 'new',
+    id, type, x, z, progress: 0, buildTime: cfg.baseBuildTime, mode: 'new',
   };
   state.construction.push(job);
-  tile.buildingId = id;
   return job;
 }
 
@@ -158,7 +155,7 @@ export function repairBuilding(state, building) {
 
 export function destroyBuilding(sceneCtx, state, building) {
   if (!building || building.type === 'capital') return false;
-  const tile = state.mapIndex.get(building.tileId);
+  const tile = null;
   if (tile) tile.buildingId = null;
   sceneCtx.groups.buildings.remove(building.mesh);
   if (building.extraMeshes?.length) building.extraMeshes.forEach((m) => sceneCtx.groups.decor.remove(m));
@@ -176,7 +173,7 @@ export function destroyBuilding(sceneCtx, state, building) {
   return true;
 }
 
-function spawnFarmBeds(sceneCtx, tile, entity) {
+function spawnFarmBeds(sceneCtx, state, cx, cz, entity) {
   const beds = [];
   entity.extraMeshes = beds;
   (async () => {
@@ -187,9 +184,9 @@ function spawnFarmBeds(sceneCtx, tile, entity) {
         const [ox, oz] = layout[i];
         model.scale.setScalar(0.26 + (i % 2) * 0.02);
         model.rotation.y = Math.PI / 2;
-        const x = tile.pos.x + ox;
-        const z = tile.pos.z + oz;
-        model.position.set(x, sampleTileSurfaceY(tile, x, z) + 0.015, z);
+        const x = cx + ox;
+        const z = cz + oz;
+        model.position.set(x, sampleTerrainHeight(state, x, z) + 0.015, z);
         sceneCtx.groups.decor.add(model);
         beds.push(model);
       }
@@ -273,13 +270,14 @@ export async function finishConstruction(sceneCtx, state, job) {
   }
 
   const cfg = BUILDINGS[job.type];
-  const tile = state.mapIndex.get(job.tileId);
-  if (!cfg || !tile) return null;
+  if (!cfg) return null;
 
-  clearDecorOnTile(sceneCtx, tile);
+  const h = sampleTerrainHeight(state, job.x, job.z);
+
+
 
   const entity = {
-    id: `b-${buildingId++}`, type: job.type, tileId: tile.id, level: 1, hp: cfg.health, maxHp: cfg.health,
+    id: `b-${buildingId++}`, type: job.type, tileId: null, level: 1, hp: cfg.health, maxHp: cfg.health,
     cooldown: 0, trainQueue: [], mesh: new THREE.Group(), selection: null, glow: null, hitFlash: 0,
     upgrading: false, extraMeshes: [], levelBadge: null, rallyTileId: null, workerDemand: 0, activeWorkers: 0,
     workerRatio: 1, blockRadius: 0.9 + (job.type === 'capital' ? 1.2 : 0)
@@ -287,7 +285,7 @@ export async function finishConstruction(sceneCtx, state, job) {
 
   const placeholder = makeFallbackMesh(job.type === 'capital' ? 0xc9a45b : 0xa8844d);
   placeholder.scale.setScalar(scaleForBuilding(job.type, 1));
-  const anchorY = sampleBuildingAnchorY(tile, job.type);
+  const anchorY = sampleTerrainHeight(state, job.x, job.z);
   placeholder.position.y = buildingBaseLift(job.type);
   entity.mesh.add(placeholder);
   entity.modelRoot = placeholder;
@@ -305,20 +303,20 @@ export async function finishConstruction(sceneCtx, state, job) {
   const light = new THREE.PointLight(0xffcc88, job.type === 'capital' ? 1.2 : 0.82, job.type === 'capital' ? 9 : 6);
   light.position.set(0, 2.2, 0); entity.mesh.add(light); entity.glow = light;
   
-  entity.mesh.userData.tileId = tile.id;
-  entity.mesh.position.set(tile.pos.x, anchorY, tile.pos.z);
+  entity.mesh.userData.buildingId = entity.id;
+  entity.mesh.position.set(job.x, anchorY, job.z);
   sceneCtx.groups.buildings.add(entity.mesh);
 
   updateBuildingBadge(entity);
   state.buildings.push(entity);
-  tile.buildingId = entity.id;
+
 
   if (cfg.territory) state.territoryRadius += cfg.territory;
   if (state.techs.has('stonework') && ['wall', 'tower', 'temple'].includes(job.type)) {
     entity.maxHp = Math.round(entity.maxHp * 1.18); entity.hp = entity.maxHp;
   }
   if (job.type === 'wonder') state.stats.wonderBuilt = 1;
-  if (job.type === 'farm') spawnFarmBeds(sceneCtx, tile, entity);
+  if (job.type === 'farm') spawnFarmBeds(sceneCtx, state, job.x, job.z, entity);
   return entity;
 }
 
@@ -340,29 +338,39 @@ export function getBuildingWorkerStatus(state, building) {
 
 export function computeBuildingYield(state, building) {
   const cfg = BUILDINGS[building.type];
-  const tile = state.mapIndex.get(building.tileId);
   const out = { ...(cfg.yields || {}) };
   const levelFactor = 1 + (building.level - 1) * .35;
   for (const key of Object.keys(out)) out[key] *= levelFactor;
 
-  const neighbors = getNeighbors(state, tile);
+  const terrain = sampleTerrain(state, building.pos.x, building.pos.z);
+
   if (building.type === 'farm') {
-    if (tile.type === 'fertile') out.food += .32;
-    if (tile.type === 'river') out.food += .25;
-    if (state.techs.has('irrigation') && ['river', 'fertile'].includes(tile.type)) out.food += .22;
+    if (terrain.type === 'fertile') out.food += .32;
+    if (terrain.type === 'river') out.food += .25;
+    if (state.techs.has('irrigation') && ['river', 'fertile'].includes(terrain.type)) out.food += .22;
   }
-  if (building.type === 'lumber') out.wood += neighbors.filter((n) => n.type === 'forest').length * .09;
+
+  if (building.type === 'lumber') {
+    // Lumber relies on workers actively chopping trees now, but passive background yield could scale on nearby trees
+    let nearbyTrees = 0;
+    for (const tree of state.trees) {
+        if (Math.hypot(tree.x - building.pos.x, tree.z - building.pos.z) < 5.0) nearbyTrees++;
+    }
+    out.wood += nearbyTrees * .02;
+  }
+
   if (building.type === 'mine') {
-    if (tile.type === 'rock') out.stone += .18;
-    if (tile.type === 'hill') out.gold += .06;
+    if (terrain.type === 'rock') out.stone += .18;
+    if (terrain.type === 'hill') out.gold += .06;
   }
-  if (building.type === 'market') out.gold += neighbors.filter((n) => n.buildingId).length * .04;
-  if (building.type === 'temple' && tile.type === 'sacred') out.prestige += .12;
+  if (building.type === 'market') out.gold += state.buildings.length * .01;
+  if (building.type === 'temple' && terrain.type === 'sacred') out.prestige += .12;
   if (building.type === 'academy' && state.techs.has('archives')) out.knowledge += .08;
   if (building.type === 'tower' && state.techs.has('discipline')) out.defense += .25;
   if (building.type === 'capital' && state.era > 0) { out.gold += .14 * state.era; out.populationCap += 2 * state.era; }
 
-  if (['farm', 'lumber', 'mine'].includes(building.type)) { delete out.food; delete out.wood; delete out.stone; delete out.gold; }
+  // Removed passive yields for economy buildings to incentivize active worker gathering
+  if (['farm', 'lumber', 'mine'].includes(building.type)) { delete out.wood; delete out.stone; }
 
   const workerStatus = getBuildingWorkerStatus(state, building);
   building.workerDemand = workerStatus.demand; building.activeWorkers = workerStatus.assigned; building.workerRatio = workerStatus.ratio;
@@ -375,9 +383,7 @@ export function computeBuildingYield(state, building) {
 export function getCapital(state) { return state.buildings.find((b) => b.type === 'capital') || null; }
 
 export function buildingCenter(state, building) {
-  const tile = state.mapIndex.get(building.tileId);
-  const baseY = building?.mesh?.position?.y ?? tile.surfaceY ?? tile.height;
-  return tile.pos.clone().setY(baseY + .6);
+  return building.pos.clone().setY(building.surfaceY + .6);
 }
 
 export function getBuildingStatus(state, building) {

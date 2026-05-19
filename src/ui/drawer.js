@@ -44,8 +44,8 @@ export function openBuildMenu(state, onChoose) {
 export function openQuickBuildMenu(state, tile, onChoose) {
   const candidates = Object.entries(BUILDINGS)
     .filter(([key]) => key !== 'capital')
-    .filter(([key]) => canPlaceBuilding(state, key, tile))
-    .sort((a, b) => scoreCandidate(a[0], tile.type) - scoreCandidate(b[0], tile.type))
+    .filter(([key]) => canPlaceBuilding(state, key, tile.pos.x, tile.pos.z))
+    .sort((a, b) => scoreCandidate(a[0], tile.type || grass) - scoreCandidate(b[0], tile.type || grass))
     .slice(0, innerWidth < 760 ? 8 : 6);
 
   const cards = candidates.map(([key, cfg]) => `

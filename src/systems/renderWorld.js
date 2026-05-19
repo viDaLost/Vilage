@@ -1,49 +1,8 @@
 import * as THREE from 'three';
 import { TERRAIN_TYPES, DECOR_MODELS, GAME_CONFIG } from '../config.js';
 import { loadDecorModel } from '../core/assets.js';
-import { buildTerrain, getTerrainPoint, getTerrainY } from './terrain.js';
-
-const terrainMaterials = new Map();
-let roadMaterial = null;
-
-function getTerrainMaterial(type) {
-  if (terrainMaterials.has(type)) return terrainMaterials.get(type);
-  const cfg = TERRAIN_TYPES[type];
-  const mat = new THREE.MeshStandardMaterial({
-    color: cfg.color,
-    roughness: type === 'river' || type === 'water' ? .28 : .98,
-    metalness: 0,
-    emissive: type === 'water' ? 0x356d93 : 0x000000,
-    emissiveIntensity: type === 'water' ? .12 : 0,
-  });
-  terrainMaterials.set(type, mat);
-  return mat;
-}
-
-function makeOrganicShape(tile) {
-  const size = GAME_CONFIG.hexSize * 1.05;
-  const shape = new THREE.Shape();
-  for (let i = 0; i < 12; i++) {
-    const sector = Math.floor((i / 12) * 6);
-    const local = ((i / 12) * 6) - sector;
-    const angle = Math.PI / 3 * sector + Math.PI / 6 + local * (Math.PI / 3);
-    const radius = size * (0.985 + Math.sin((tile.q * 7 + tile.r * 11 + i) * 0.7) * 0.022);
-    const x = Math.cos(angle) * radius;
-    const y = Math.sin(angle) * radius;
-    if (i === 0) shape.moveTo(x, y); else shape.lineTo(x, y);
-  }
-  shape.closePath();
-  return shape;
-}
-
-function makeHexMesh(tile) {
-  const geo = new THREE.CircleGeometry(GAME_CONFIG.hexSize * 0.82, 18);
-  geo.rotateX(-Math.PI / 2);
-  const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.0, depthWrite: false }));
-  mesh.position.set(tile.pos.x, tile.surfaceY + 0.02, tile.pos.z);
-  mesh.userData.tileId = tile.id;
-  return mesh;
-}
+import { buildTerrain, sampleTerrainHeight, getTerrainY } from './terrain.js';
+import { sampleTerrain } from './world.js';
 
 async function addDistantMountains(group) {
   group.clear();
@@ -67,56 +26,6 @@ async function addDistantMountains(group) {
   }
 }
 
-export function clearDecorOnTile(sceneCtx, tile) {
-  if (!tile?.decorMeshes?.length) return;
-  for (const mesh of tile.decorMeshes) sceneCtx.groups.decor.remove(mesh);
-  tile.decorMeshes.length = 0;
-}
-
-export function sampleTileSurfaceY(tile, x = tile.pos.x, z = tile.pos.z) {
-  return getTerrainY(x, z);
-}
-
-function decorChoices(tile) {
-  const r = (salt) => {
-    const x = Math.sin(tile.q * 127.1 + tile.r * 311.7 + salt * 74.7) * 43758.5453123;
-    return x - Math.floor(x);
-  };
-  const list = [];
-  switch (tile.type) {
-    case 'forest':
-      list.push(r(1) > .45 ? 'pineAlt' : 'pine');
-      if (r(2) > .52) list.push('tree');
-      if (r(3) > .68) list.push('logs');
-      if (r(4) > .82) list.push('hut');
-      break;
-    case 'grass':
-      if (r(1) > .55) list.push('tree');
-      if (r(2) > .72) list.push('logs');
-      if (r(3) > .85) list.push('house');
-      break;
-    case 'fertile':
-      if (r(2) > .58) list.push('tree');
-      break;
-    case 'rock':
-      list.push(r(1) > .58 ? 'goldRock' : 'rocks');
-      if (r(2) > .5) list.push('rocks');
-      if (r(3) > .7) list.push('mountain');
-      break;
-    case 'hill':
-      list.push(r(1) > .45 ? 'mountainGroup' : 'rocks');
-      if (r(2) > .58) list.push('tree');
-      if (r(3) > .78) list.push('watchTower');
-      break;
-    case 'river':
-      break;
-    case 'sacred':
-      if (r(1) > .5) list.push('tree');
-      break;
-  }
-  return list.filter(Boolean).slice(0, 2);
-}
-
 export function renderTiles(sceneCtx, state) {
   const { groups } = sceneCtx;
   groups.tiles.clear();
@@ -133,13 +42,6 @@ export function renderTiles(sceneCtx, state) {
   groups.overlays.add(ring);
 
   buildTerrain(sceneCtx, state);
-
-  state.map.forEach((tile) => {
-    tile.decorMeshes = [];
-    const mesh = makeHexMesh(tile);
-    groups.overlays.add(mesh);
-    tile.mesh = mesh;
-  });
 }
 
 export function updateTerritoryOverlay(sceneCtx, state) {
@@ -162,68 +64,55 @@ function clearGroup(group) {
 
 export function renderRoads(sceneCtx, state) {
   clearGroup(sceneCtx.groups.roads);
-  roadMaterial = null;
-  if (!roadMaterial) {
-    roadMaterial = new THREE.MeshStandardMaterial({
-      color: 0x8f744f,
-      roughness: 0.96,
-      metalness: 0.02,
-      polygonOffset: true,
-      polygonOffsetFactor: -2,
-      polygonOffsetUnits: -2
-    });
-  }
-
-  for (const road of state.roads || []) {
-    const a = state.mapIndex.get(road.a);
-    const b = state.mapIndex.get(road.b);
-    if (!a || !b || a.type === 'water' || b.type === 'water') continue;
-    const mid = a.pos.clone().lerp(b.pos, 0.5);
-    const points = [a.pos, mid, b.pos].map((p, idx) => {
-      const wave = idx === 1 ? Math.sin((a.q + b.r) * 1.7) * 0.12 : 0;
-      const x = p.x + (idx === 1 ? wave : 0);
-      const z = p.z - (idx === 1 ? wave : 0);
-      return new THREE.Vector3(x, getTerrainY(x, z) + 0.075, z);
-    });
-    const curve = new THREE.CatmullRomCurve3(points);
-    const geom = new THREE.TubeGeometry(curve, 8, 0.085, 6, false);
-    const mesh = new THREE.Mesh(geom, roadMaterial);
-    mesh.receiveShadow = true;
-    sceneCtx.groups.roads.add(mesh);
-
-    const bead = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.16, 0.18, 0.035, 8),
-      roadMaterial
-    );
-    bead.position.set(mid.x, getTerrainY(mid.x, mid.z) + 0.088, mid.z);
-    bead.rotation.x = Math.PI / 2;
-    sceneCtx.groups.roads.add(bead);
-  }
+  // Roads will be completely revamped with continuous map
 }
 
-function tileNearWater(state, tile) {
-  return state.map.some((other) => other.type === 'water' && other.pos.distanceTo(tile.pos) < 2.6);
+function decorChoices(terrainType, noise) {
+  const list = [];
+  const r = (salt) => {
+    const x = Math.sin(noise * 127.1 + salt * 74.7) * 43758.5453123;
+    return x - Math.floor(x);
+  };
+  switch (terrainType) {
+    case 'forest':
+      list.push(r(1) > .45 ? 'pineAlt' : 'pine');
+      if (r(2) > .52) list.push('tree');
+      if (r(3) > .68) list.push('logs');
+      break;
+    case 'grass':
+      if (r(1) > .85) list.push('tree');
+      break;
+    case 'fertile':
+      if (r(2) > .88) list.push('tree');
+      break;
+    case 'rock':
+      list.push(r(1) > .58 ? 'goldRock' : 'rocks');
+      if (r(2) > .5) list.push('rocks');
+      if (r(3) > .7) list.push('mountain');
+      break;
+    case 'hill':
+      list.push(r(1) > .45 ? 'mountainGroup' : 'rocks');
+      if (r(2) > .58) list.push('tree');
+      break;
+  }
+  return list.filter(Boolean).slice(0, 2);
 }
 
-async function spawnDecorModel(sceneCtx, state, tile, key, slot = 0) {
-  if (!key || tile.buildingId || tile.type === 'water' || tile.type === 'river') return;
-  if (['tree','oak','pine','pineAlt','pineRound','house','hut','shack'].includes(key) && tileNearWater(state, tile)) return;
+async function spawnDecorModel(sceneCtx, state, x, z, key) {
+  if (!key) return;
   const cfg = DECOR_MODELS[key];
   if (!cfg) return;
   try {
     const root = 'decor';
     const model = await loadDecorModel(cfg.file, root);
     if (!model) return;
-    const seed = Math.sin(tile.q * 53.2 + tile.r * 71.9 + slot * 19.3) * 43758.5453;
-    const rand = seed - Math.floor(seed);
-    const angle = rand * Math.PI * 2;
-    const radius = slot === 0 ? 0.22 : 0.46 + slot * 0.18;
-    const x = tile.pos.x + Math.cos(angle) * radius;
-    const z = tile.pos.z + Math.sin(angle) * radius;
-    const point = getTerrainPoint(x, z);
-    const y = point.y + (cfg.y || 0.0) + 0.01;
+
+    const h = sampleTerrainHeight(state, x, z);
+    const y = h + (cfg.y || 0.0);
+    const rand = Math.random();
+
     model.scale.setScalar((cfg.scale || 0.25) * (0.92 + rand * 0.16));
-    model.position.set(point.x, y, point.z);
+    model.position.set(x, y, z);
     model.rotation.y = rand * Math.PI * 2;
     model.traverse((obj) => {
       if (obj.isMesh || obj.isSkinnedMesh) {
@@ -231,9 +120,15 @@ async function spawnDecorModel(sceneCtx, state, tile, key, slot = 0) {
         obj.receiveShadow = true;
       }
     });
-    model.userData.baseY = y;
-    sceneCtx.groups.decor.add(model);
-    tile.decorMeshes.push(model);
+
+    // Convert generic decor to actual gameplay resource nodes
+    if (['tree', 'oak', 'pine', 'pineAlt', 'pineRound'].includes(key)) {
+        state.trees.push({ x, y, z, hp: 50, maxHp: 50, mesh: model, id: `tree-${Math.random()}` });
+    } else if (['rocks', 'goldRock'].includes(key)) {
+        state.rocks.push({ x, y, z, hp: 100, maxHp: 100, isGold: key === 'goldRock', mesh: model, id: `rock-${Math.random()}` });
+    } else {
+        sceneCtx.groups.decor.add(model);
+    }
   } catch (err) {
     console.warn('Decor load failed', key, err);
   }
@@ -241,15 +136,31 @@ async function spawnDecorModel(sceneCtx, state, tile, key, slot = 0) {
 
 export async function populateDecorModels(sceneCtx, state) {
   const tasks = [];
-  for (const tile of state.map) {
-    if (tile.buildingId || tile.type === 'water') continue;
-    const choices = decorChoices(tile);
-    choices.forEach((c, idx) => {
-      const density = Math.abs(Math.sin(tile.q * 17.7 + tile.r * 9.3 + idx));
-      if (density < (1 - GAME_CONFIG.decorModelDensity)) return;
-      tasks.push(spawnDecorModel(sceneCtx, state, tile, c, idx));
-    });
+  const R = GAME_CONFIG.mapRadius * GAME_CONFIG.hexSize * 2.0;
+
+  // Grid sampling for continuous decor placement
+  for (let x = -R; x <= R; x += 3.5) {
+      for (let z = -R; z <= R; z += 3.5) {
+          if (Math.hypot(x, z) > R * 0.95) continue;
+
+          const terrain = sampleTerrain(state, x, z);
+          if (terrain.type === 'water' || terrain.type === 'river') continue;
+
+          const choices = decorChoices(terrain.type, terrain.noise);
+          choices.forEach((c, idx) => {
+              const density = Math.abs(Math.sin(x * 17.7 + z * 9.3 + idx));
+              if (density < (1 - GAME_CONFIG.decorModelDensity)) return;
+
+              const offsetX = (Math.random() - 0.5) * 2.0;
+              const offsetZ = (Math.random() - 0.5) * 2.0;
+              tasks.push(spawnDecorModel(sceneCtx, state, x + offsetX, z + offsetZ, c));
+          });
+      }
   }
-  // avoid blocking on any single failed asset
+
   for (let i = 0; i < tasks.length; i += 8) { await Promise.allSettled(tasks.slice(i, i + 8)); }
+
+  // Add tree and rock meshes to the scene after populating lists
+  for (const tree of state.trees) sceneCtx.groups.decor.add(tree.mesh);
+  for (const rock of state.rocks) sceneCtx.groups.decor.add(rock.mesh);
 }

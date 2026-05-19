@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { MapControls } from 'three/addons/controls/MapControls.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
@@ -32,15 +32,17 @@ export function createScene(canvas) {
   const camera = new THREE.PerspectiveCamera(innerWidth < 760 ? 52 : 50, innerWidth / innerHeight, .1, 800);
   camera.position.set(innerWidth < 760 ? 18 : 22, innerWidth < 760 ? 21 : 26, innerWidth < 760 ? 18 : 21);
 
-  const controls = new OrbitControls(camera, canvas);
+  const controls = new MapControls(camera, canvas);
   controls.enableDamping = true;
   controls.dampingFactor = .065;
   controls.maxDistance = innerWidth < 760 ? 56 : 108;
   controls.minDistance = innerWidth < 760 ? 11 : 5;
   controls.maxPolarAngle = Math.PI / 2.08;
   controls.minPolarAngle = Math.PI / 4.9;
-  controls.enablePan = !('ontouchstart' in window);
+  controls.enablePan = true;
   controls.screenSpacePanning = false;
+  controls.mouseButtons = { LEFT: THREE.MOUSE.NONE, MIDDLE: THREE.MOUSE.ROTATE, RIGHT: THREE.MOUSE.PAN };
+  controls.touches = { ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_ROTATE };
   controls.panSpeed = .9;
   controls.zoomSpeed = 1.18;
   if ('zoomToCursor' in controls) controls.zoomToCursor = true;
